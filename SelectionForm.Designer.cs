@@ -37,14 +37,17 @@
             textBox3 = new TextBox();
             button3 = new Button();
             label3 = new Label();
+            label4 = new Label();
+            textBox4 = new TextBox();
             SuspendLayout();
             // 
             // button1
             // 
             button1.Font = new Font("Microsoft YaHei UI", 18F, FontStyle.Regular, GraphicsUnit.Point);
-            button1.Location = new Point(223, 286);
+            button1.Location = new Point(350, 404);
+            button1.Margin = new Padding(5, 4, 5, 4);
             button1.Name = "button1";
-            button1.Size = new Size(91, 36);
+            button1.Size = new Size(143, 51);
             button1.TabIndex = 0;
             button1.Text = "确定";
             button1.UseVisualStyleBackColor = true;
@@ -53,9 +56,10 @@
             // button2
             // 
             button2.Font = new Font("Microsoft YaHei UI", 18F, FontStyle.Regular, GraphicsUnit.Point);
-            button2.Location = new Point(367, 286);
+            button2.Location = new Point(577, 404);
+            button2.Margin = new Padding(5, 4, 5, 4);
             button2.Name = "button2";
-            button2.Size = new Size(91, 36);
+            button2.Size = new Size(143, 51);
             button2.TabIndex = 1;
             button2.Text = "取消";
             button2.UseVisualStyleBackColor = true;
@@ -65,9 +69,10 @@
             // 
             label1.AutoSize = true;
             label1.Font = new Font("Microsoft YaHei UI", 18F, FontStyle.Regular, GraphicsUnit.Point);
-            label1.Location = new Point(174, 167);
+            label1.Location = new Point(273, 236);
+            label1.Margin = new Padding(5, 0, 5, 0);
             label1.Name = "label1";
-            label1.Size = new Size(110, 31);
+            label1.Size = new Size(164, 46);
             label1.TabIndex = 2;
             label1.Text = "标样文件";
             label1.Click += label1_Click;
@@ -76,9 +81,10 @@
             // 
             label2.AutoSize = true;
             label2.Font = new Font("Microsoft YaHei UI", 18F, FontStyle.Regular, GraphicsUnit.Point);
-            label2.Location = new Point(174, 123);
+            label2.Location = new Point(273, 174);
+            label2.Margin = new Padding(5, 0, 5, 0);
             label2.Name = "label2";
-            label2.Size = new Size(110, 31);
+            label2.Size = new Size(164, 46);
             label2.TabIndex = 3;
             label2.Text = "系统文件";
             label2.Click += label2_Click;
@@ -86,36 +92,40 @@
             // textBox1
             // 
             textBox1.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular, GraphicsUnit.Point);
-            textBox1.Location = new Point(313, 167);
+            textBox1.Location = new Point(492, 236);
+            textBox1.Margin = new Padding(5, 4, 5, 4);
             textBox1.Name = "textBox1";
-            textBox1.Size = new Size(145, 25);
+            textBox1.Size = new Size(226, 34);
             textBox1.TabIndex = 4;
             textBox1.TextChanged += textBox1_TextChanged;
             // 
             // textBox2
             // 
             textBox2.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular, GraphicsUnit.Point);
-            textBox2.Location = new Point(313, 222);
+            textBox2.Location = new Point(492, 313);
+            textBox2.Margin = new Padding(5, 4, 5, 4);
             textBox2.Name = "textBox2";
-            textBox2.Size = new Size(145, 25);
+            textBox2.Size = new Size(226, 34);
             textBox2.TabIndex = 5;
             textBox2.TextChanged += textBox2_TextChanged;
             // 
             // textBox3
             // 
             textBox3.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular, GraphicsUnit.Point);
-            textBox3.Location = new Point(313, 123);
+            textBox3.Location = new Point(492, 174);
+            textBox3.Margin = new Padding(5, 4, 5, 4);
             textBox3.Name = "textBox3";
-            textBox3.Size = new Size(145, 25);
+            textBox3.Size = new Size(226, 34);
             textBox3.TabIndex = 6;
             textBox3.TextChanged += textBox3_TextChanged;
             // 
             // button3
             // 
             button3.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular, GraphicsUnit.Point);
-            button3.Location = new Point(486, 167);
+            button3.Location = new Point(764, 236);
+            button3.Margin = new Padding(5, 4, 5, 4);
             button3.Name = "button3";
-            button3.Size = new Size(90, 25);
+            button3.Size = new Size(141, 35);
             button3.TabIndex = 7;
             button3.Text = "选择";
             button3.UseVisualStyleBackColor = true;
@@ -125,17 +135,41 @@
             // 
             label3.AutoSize = true;
             label3.Font = new Font("Microsoft YaHei UI", 18F, FontStyle.Regular, GraphicsUnit.Point);
-            label3.Location = new Point(174, 213);
+            label3.Location = new Point(273, 301);
+            label3.Margin = new Padding(5, 0, 5, 0);
             label3.Name = "label3";
-            label3.Size = new Size(110, 31);
+            label3.Size = new Size(164, 46);
             label3.TabIndex = 8;
             label3.Text = "循环次数";
             // 
+            // label4
+            // 
+            label4.AutoSize = true;
+            label4.Font = new Font("Microsoft YaHei UI", 18F, FontStyle.Regular, GraphicsUnit.Point);
+            label4.Location = new Point(273, 100);
+            label4.Margin = new Padding(5, 0, 5, 0);
+            label4.Name = "label4";
+            label4.Size = new Size(92, 46);
+            label4.TabIndex = 9;
+            label4.Text = "扫码";
+            // 
+            // textBox4
+            // 
+            textBox4.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular, GraphicsUnit.Point);
+            textBox4.Location = new Point(492, 112);
+            textBox4.Margin = new Padding(5, 4, 5, 4);
+            textBox4.Name = "textBox4";
+            textBox4.Size = new Size(226, 34);
+            textBox4.TabIndex = 10;
+            textBox4.TextChanged += textBox4_TextChanged;
+            // 
             // SelectionForm
             // 
-            AutoScaleDimensions = new SizeF(7F, 17F);
+            AutoScaleDimensions = new SizeF(11F, 24F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(800, 450);
+            ClientSize = new Size(1257, 635);
+            Controls.Add(textBox4);
+            Controls.Add(label4);
             Controls.Add(label3);
             Controls.Add(button3);
             Controls.Add(textBox3);
@@ -145,6 +179,7 @@
             Controls.Add(label1);
             Controls.Add(button2);
             Controls.Add(button1);
+            Margin = new Padding(5, 4, 5, 4);
             Name = "SelectionForm";
             Text = "SelectionForm";
             Load += SelectionForm_Load;
@@ -163,5 +198,7 @@
         private TextBox textBox3;
         private Button button3;
         private Label label3;
+        private Label label4;
+        private TextBox textBox4;
     }
 }

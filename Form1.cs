@@ -14,6 +14,7 @@ namespace WinFormsApp1321
 
 
 
+
         private TCPServer _tcpServer;
         private PLCClient _plcClient;
         private ScanGangBasic _scanGangBasic;
@@ -27,6 +28,8 @@ namespace WinFormsApp1321
 
             // 初始化 TCPServer，并传入 PLC 和扫码枪实例
             _tcpServer = new TCPServer(_plcClient, _scanGangBasic);
+
+
         }
 
 
@@ -68,16 +71,17 @@ namespace WinFormsApp1321
                     totalCycles = selectionForm.CalibrationCount;
                     currentCycle = 0;
 
-                    // 确认后，创建 循环任务 并启动循环
-                    cancellationTokenSource = new CancellationTokenSource();
-                    CancellationToken token = cancellationTokenSource.Token;
-                    await Task.Run(() => RunCalibrationLoop(selectedStandardFile, token));
-
                     // 更新状态
                     isOn = true;
                     button1.Text = "自校准模式已开启";
                     label1.Text = "当前状态：自校准模式";
                     button2.Enabled = false;
+                    // 确认后，创建 循环任务 并启动循环
+                    cancellationTokenSource = new CancellationTokenSource();
+                    CancellationToken token = cancellationTokenSource.Token;
+                    await Task.Run(() => RunCalibrationLoop(selectedStandardFile, token));
+
+
                 }
             }
             else

@@ -1,24 +1,40 @@
 ﻿using BLL.Hardware.ScanGang;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace WinFormsApp1321
 {
     public class TCPServer
     {
-        private Socket _serverSocket;
-        private List<Socket> _clients = new List<Socket>();
+        private readonly Socket _serverSocket;
+        private readonly ConcurrentDictionary<Socket, string> _clients = new();
+        private readonly ConcurrentDictionary<Socket, string> _clientIdentifiers = new();
         private const int BufferSize = 1024;
-        private bool _isRunning = false;
-        private ScanGangBasic _scanGangBasic;
-        private PLCClient _plcClient;
+        private volatile bool _isRunning;
+        private readonly ScanGangBasic _scanGangBasic;
+        private readonly PLCClient _plcClient;
+        private readonly ReadTool _readTool;
+        private  Dictionary<string, Func<byte[], byte[]>> _responseHandlers;
+        private readonly Dictionary<string, Func<byte[], byte[]>> _responseHandlersTest;
+        private readonly Dictionary<string, Func<byte[], byte[]>> _responseHandlersFormal;
+        private readonly object _lock = new();
+        private int scanAASuccessCount = 0;
+        private int scanBBSuccessCount = 0;
+        private string result;
+        private string errStr;
+        private int mode ;
 
 
-
+        private bool isAAReceived = false;
+        private bool isBBReceived = false;
+        private byte[] aaData;
+        private byte[] bbData;
         public event Action<string> OnClientConnected;
         public event Action<string, string> OnMessageReceived;
         public event Action<string> OnClientDisconnected;
@@ -29,113 +45,24 @@ namespace WinFormsApp1321
             _serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             _plcClient = plcClient;
             _scanGangBasic = scanGangBasic;
+
+            _responseHandlersFormal = new Dictionary<string, Func<byte[], byte[]>>
+            {
+                { "FE-55-AA-02-00-80-E0", HandleHeartbeatAA },
+                { "FE-55-BB-02-00-80-E0", HandleHeartbeatBB },
+                { "FE-55-AA-02-00-80-E4", HandleScanAASuccess },
+                { "FE-55-BB-02-00-80-E4", HandleScanBBSuccess }
+                
+            };
+
+            _responseHandlersTest = new Dictionary<string, Func<byte[], byte[]>>
+            {
+                { "FE-55-AA-02-00-80-E0",HandleHeartbeatAATest},
+                { "FE-55-BB-02-00-80-E0",HandleHeartbeatBBTest},
+                { "FE-55-AA-02-00-80-E3",HandleScanAASuccessTest},
+                { "FE-55-BB-02-00-80-E3",HandleScanBBSuccessTest}
+            };
         }
-
-        /*public void StartWoLiu()
-        {
-            try
-            {
-                _serverSocket.Bind(new IPEndPoint(IPAddress.Loopback, 6065));
-                _serverSocket.Listen(10);
-                _isRunning = true;
-                Console.WriteLine("服务器已启动，等待客户端连接...");
-                AcceptClient();
-            }
-            catch (Exception ex)
-            {
-                OnError?.Invoke($"服务器启动失败: {ex.Message}");
-            }
-        }
-
-        private void AcceptClient()
-        {
-            _serverSocket.BeginAccept(asyncResult =>
-            {
-                try
-                {
-                    Socket clientSocket = _serverSocket.EndAccept(asyncResult);
-                    _clients.Add(clientSocket);
-                    string clientIP = clientSocket.RemoteEndPoint.ToString();
-                    Console.WriteLine($"客户端连接: {clientIP}");
-                    OnClientConnected?.Invoke(clientIP);
-
-                    AcceptClient(); // 继续监听新客户端
-                    ReceiveMessage(clientSocket); // 监听该客户端的消息
-                }
-                catch (Exception ex)
-                {
-                    OnError?.Invoke($"接受客户端失败: {ex.Message}");
-                }
-            }, null);
-        }
-
-        private void ReceiveMessage(Socket client)
-        {
-            byte[] buffer = new byte[BufferSize];
-            try
-            {
-                client.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, asyncResult =>
-                {
-                    try
-                    {
-                        int receivedLength = client.EndReceive(asyncResult);
-                        if (receivedLength > 0)
-                        {
-                            byte[] receivedData = new byte[receivedLength];
-                            Array.Copy(buffer, receivedData, receivedLength); // 复制有效数据
-                            Console.WriteLine($"收到客户端消息: {BitConverter.ToString(receivedData)}");
-                            OnMessageReceived?.Invoke(client.RemoteEndPoint.ToString(), BitConverter.ToString(receivedData));
-
-                            
-                            SendMessage(client, receivedData);
-
-                            // 继续接收新的消息
-                            ReceiveMessage(client);
-                        }
-                        else
-                        {
-                            DisconnectClient(client);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        OnError?.Invoke($"接收消息异常: {ex.Message}");
-                        DisconnectClient(client);
-                    }
-                }, null);
-            }
-            catch (Exception ex)
-            {
-                OnError?.Invoke($"客户端连接异常: {ex.Message}");
-                DisconnectClient(client);
-            }
-        }
-
-        public void SendMessage(Socket client, byte[] receivedData)
-        {
-            try
-            {
-                // 解析并自定义返回数据
-                byte[] response = GenerateResponse(receivedData);
-
-                client.BeginSend(response, 0, response.Length, SocketFlags.None, asyncResult =>
-                {
-                    try
-                    {
-                        int sent = client.EndSend(asyncResult);
-                        Console.WriteLine($"发送消息成功: {BitConverter.ToString(response)}");
-                    }
-                    catch (Exception ex)
-                    {
-                        OnError?.Invoke($"发送消息失败: {ex.Message}");
-                    }
-                }, null);
-            }
-            catch (Exception ex)
-            {
-                OnError?.Invoke($"发送数据异常: {ex.Message}");
-            }
-        }*/
 
         public async Task StartWoLiuAsync()
         {
@@ -148,7 +75,7 @@ namespace WinFormsApp1321
 
                 while (_isRunning)
                 {
-                    Socket client = await AcceptClientAsync();
+                    var client = await AcceptClientAsync();
                     if (client != null)
                     {
                         _ = HandleClientAsync(client);
@@ -159,400 +86,479 @@ namespace WinFormsApp1321
             {
                 OnError?.Invoke($"服务器启动失败: {ex.Message}");
             }
+            finally
+            {
+                Stop();
+            }
         }
 
-        private async Task<Socket?> AcceptClientAsync()
+        private async Task<Socket> AcceptClientAsync()
         {
-            return await Task.Run(() =>
+            try
             {
-                try
+                var clientSocket = await _serverSocket.AcceptAsync();
+                clientSocket.ReceiveTimeout = 5000;
+
+                lock (_lock)
                 {
-                    Socket clientSocket = _serverSocket.Accept();
-                    _clients.Add(clientSocket);
-                    string clientIP = clientSocket.RemoteEndPoint?.ToString() ?? "未知客户端null"; // 检查 RemoteEndPoint 是否为 null
-                    Console.WriteLine($"客户端连接: {clientIP}");
-                    OnClientConnected?.Invoke(clientIP);
-                    return clientSocket;
+                    _clients.TryAdd(clientSocket, null);
                 }
-                catch (Exception ex)
+
+                var clientEP = clientSocket.RemoteEndPoint?.ToString() ?? "未知客户端";
+                OnClientConnected?.Invoke(clientEP);
+
+                // 接收初始识别数据
+                var initialData = await ReceiveMessageAsync(clientSocket);
+                if (initialData == null || initialData.Length < 3)
                 {
-                    OnError?.Invoke($"接受客户端失败: {ex.Message}");
+                    DisconnectClient(clientSocket);
                     return null;
                 }
-            });
+
+                var clientId = IdentifyClient(initialData);
+                _clientIdentifiers[clientSocket] = clientId;
+
+                return clientSocket;
+            }
+            catch (Exception ex)
+            {
+                OnError?.Invoke($"接受客户端失败: {ex.Message}");
+                return null;
+            }
         }
+
+        private string IdentifyClient(byte[] initialData)
+        {
+            if (initialData.Length < 3) return "Unknown";
+            return BitConverter.ToString(initialData, 0, 3) switch
+            {
+                "FE-55-AA" => "AA",
+                "FE-55-BB" => "BB",
+                _ => "Unknown"
+            };
+        }
+
 
         private async Task HandleClientAsync(Socket client)
         {
-            while (client.Connected && _isRunning)
+            try
             {
-                byte[] receivedData = await ReceiveMessageAsync(client);
-                if (receivedData != null && receivedData.Length > 0)
+                while (true)
                 {
-                    SendMessage(client, receivedData);
+                    var receivedData = await ReceiveMessageAsync(client);
+                    if (receivedData == null || receivedData.Length == 0) break;
+
+                    var clientId = _clientIdentifiers.GetValueOrDefault(client, "Unknown");
+                    var response = GenerateResponse(receivedData, clientId);
+                    await SendMessageAsync(client, response);
                 }
-                else
-                {
-                    DisconnectClient(client);
-                    break;
-                }
+            }
+            catch (Exception ex)
+            {
+                OnError?.Invoke($"客户端处理错误: {ex.Message}");
+            }
+            finally
+            {
+                DisconnectClient(client);
             }
         }
 
-/*        private async Task<byte[]> ReceiveMessageAsync(Socket client)
+        private byte[] GenerateResponse(byte[] receivedData, string clientId)
         {
-            return await Task.Run(() =>
-            {
-                byte[] buffer = new byte[BufferSize];
-                try
-                {
-                    int receivedLength = client.Receive(buffer);
-                    if (receivedLength > 0)
-                    {
-                        byte[] receivedData = new byte[receivedLength];
-                        Array.Copy(buffer, receivedData, receivedLength);
-                        Console.WriteLine($"收到客户端消息: {BitConverter.ToString(receivedData)}");
-                        OnMessageReceived?.Invoke(client.RemoteEndPoint.ToString(), BitConverter.ToString(receivedData));
+            if (receivedData.Length < 7) return new byte[] { 0xFF, 0xFF };
 
-                        return receivedData;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    OnError?.Invoke($"接收消息异常: {ex.Message}");
-                    DisconnectClient(client);
-                }
-                return null;
-            });
-        }*/
+            var key = BitConverter.ToString(receivedData, 0, 7);
+            if(mode ==1)
+            {
+                _responseHandlers = _responseHandlersTest;
+            }
+            else
+            {
+                _responseHandlers = _responseHandlersFormal;
+            }
+            if (_responseHandlers.TryGetValue(key, out var handler))
+            {
+                return handler(receivedData);
+            }
+
+            return clientId switch
+            {
+                "AA" => GenerateDefaultResponseAA(),
+                "BB" => GenerateDefaultResponseBB(),
+                _ => new byte[] { 0xFF, 0xFF }
+            };
+        }
 
         private async Task<byte[]> ReceiveMessageAsync(Socket client)
         {
-            byte[] buffer = new byte[BufferSize];
             try
             {
-                int receivedLength = await client.ReceiveAsync(buffer, SocketFlags.None);
-                if (receivedLength > 0)
+                var buffer = new byte[BufferSize];
+                var received = await client.ReceiveAsync(buffer, SocketFlags.None);
+                if (received == 0) return null;
+
+                var data = new byte[received];
+                Buffer.BlockCopy(buffer, 0, data, 0, received);
+                OnMessageReceived?.Invoke(client.RemoteEndPoint.ToString(), BitConverter.ToString(data));
+                return data;
+            }
+            catch (Exception ex)
+            {
+                OnError?.Invoke($"接收错误: {ex.Message}");
+                return null;
+            }
+        }
+
+        private async Task SendMessageAsync(Socket client, byte[] data)
+        {
+            try
+            {
+                if (client.Connected)
                 {
-                    byte[] receivedData = new byte[receivedLength];
-                    Array.Copy(buffer, receivedData, receivedLength);
-                    Console.WriteLine($"收到客户端消息: {BitConverter.ToString(receivedData)}");
-                    OnMessageReceived?.Invoke(client.RemoteEndPoint.ToString(), BitConverter.ToString(receivedData));
-                    return receivedData;
+                    await client.SendAsync(data, SocketFlags.None);
                 }
             }
             catch (Exception ex)
             {
-                OnError?.Invoke($"接收消息异常: {ex.Message}");
-            }
-            return null;
-        }
-
-
-        public void SendMessage(Socket client, byte[] receivedData)
-        {
-            try
-            {
-                byte[] response = GenerateResponse(receivedData);
-                client.Send(response);
-                Console.WriteLine($"发送消息成功: {BitConverter.ToString(response)}");
-            }
-            catch (Exception ex)
-            {
-                OnError?.Invoke($"发送消息失败: {ex.Message}");
+                OnError?.Invoke($"发送失败: {ex.Message}");
+                DisconnectClient(client);
             }
         }
 
         private void DisconnectClient(Socket client)
         {
-            if (client != null && client.Connected)
+            if (client == null) return;
+
+            lock (_lock)
             {
-                string clientIP = client.RemoteEndPoint.ToString();
-                Console.WriteLine($"客户端断开连接: {clientIP}");
-                OnClientDisconnected?.Invoke(clientIP);
-                _clients.Remove(client);
-                client.Shutdown(SocketShutdown.Both);
-                client.Close();
+                if (!client.Connected) return;
+
+                try
+                {
+                    var clientEP = client.RemoteEndPoint?.ToString() ?? "未知客户端";
+                    client.Shutdown(SocketShutdown.Both);
+                    client.Close();
+                    OnClientDisconnected?.Invoke(clientEP);
+                }
+                finally
+                {
+                    _clients.TryRemove(client, out _);
+                    _clientIdentifiers.TryRemove(client, out _);
+                }
             }
         }
 
         public void Stop()
         {
             _isRunning = false;
-            foreach (var client in _clients)
+            lock (_lock)
             {
-                DisconnectClient(client);
+                foreach (var client in _clients.Keys)
+                {
+                    DisconnectClient(client);
+                }
             }
             _serverSocket.Close();
             Console.WriteLine("服务器已关闭");
         }
 
-        /// <summary>
-        /// 计算 CheckSum
-        /// </summary>
-        /// <param name="id">参数 ID</param>
-        /// <param name="values">参数值</param>
-        /// <returns>CheckSum 值</returns>
-        private byte CalculateCheckSum(byte id, byte[] values)
+        private byte CalculateCheckSum(byte[] data)
         {
-            byte checkSum = id;
-            foreach (byte value in values)
+            if (data.Length < 7) throw new ArgumentException("无效数据包");
+
+            byte checkSum = 0;
+            for (int i = 5; i < data.Length - 1; i++)
             {
-                checkSum ^= value;
+                checkSum ^= data[i];
             }
             return checkSum;
         }
 
 
-        /// <summary>
-        /// 验证 CheckSum
-        /// </summary>
-        /// <param name="data">完整的数据包</param>
-        /// <returns>true 表示数据有效，false 表示数据无效</returns>
-        private byte GetCheckSumBit(byte[] data)
+        public bool CheckTestResult(byte[] data)
         {
-            // 数据包格式：Head(2) + ClientID(1) + Len_Total(1) + ID(1) + Value1(1) + Value2(N) + CheckSum(1)
-            if (data.Length < 7)
+            // 1. 查找 E5 标志位
+            int indexE5 = Array.IndexOf(data, (byte)0xE5);
+            if (indexE5 == -1) return false;
+
+            byte identifier = data[2]; // 记录 AA 或 BB 标志
+            byte[] extractedData = data.Skip(indexE5 + 1).Take(data.Length - indexE5 - 2).ToArray();
+
+            if (identifier == 0xAA && !isAAReceived)
             {
-                throw new ArgumentException("数据包长度不足");
+                isAAReceived = true;
+                aaData = extractedData;
+                Console.WriteLine("接收到AA检测");
+            }
+            else if (identifier == 0xBB && !isBBReceived)
+            {
+                isBBReceived = true;
+                bbData = extractedData;
+                Console.WriteLine("接收到BB检测");
             }
 
-            // 提取 ID 和 Value
-            byte id = data[4];
-            byte[] values = new byte[data.Length - 7];
-            Array.Copy(data, 5, values, 0, values.Length);
-
-            // 计算 CheckSum
-            byte calculatedCheckSum = CalculateCheckSum(id, values);
-
-/*            // 获取数据包中的 CheckSum
-            byte receivedCheckSum = data[data.Length - 1];
-*/
-            // 返回校验和的最低有效位（即最低的 bit）
-            return (byte)(calculatedCheckSum & 0x01);  // 只返回最低的 bit
+            // 3. 如果 AA 和 BB 都收到，则进行下一步操作
+            if (isAAReceived && isBBReceived)
+            {
+                ProcessFinalTestData();
+                return true;
+            }
+            else
+            {
+                Console.WriteLine("等待AA和BB返回结果...");
+                return false;
+            }
         }
 
-
-
-        /// <summary>
-        /// 解析收到的数据，并根据不同情况返回自定义数据
-        /// </summary>
-        private byte[] GenerateResponse(byte[] receivedData)
+        private bool ProcessFinalTestData()
         {
-            // 示例：客户端发送 "FE 55 AA 02 00 E0"
-            // 服务器返回 "FD 55 AA 02 00 F0"
-            // 调用 ReadDRegisterAsync 获取字节数组
-
-
-            if (receivedData.Length == 7 &&
-                receivedData[0] == 0xFE &&
-                receivedData[1] == 0x55 &&
-                receivedData[2] == 0xAA &&
-                receivedData[3] == 0x02 &&
-                receivedData[4] == 0x80 &&
-                receivedData[5] == 0xE0)
+            // 检查 aaData 和 bbData 的第一位是否为 0xA0
+            if ((aaData[0] == 0xA0) || (bbData[0] == 0xA0))
             {
-                // 获取校验和的最低有效位
-                byte checkSumBit = GetCheckSumBit(receivedData);
-                List<byte> response = new List<byte> { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0xF0 };
-                response.Add(checkSumBit);
-                return response.ToArray();
-            }
-            else if(receivedData.Length == 7 &&
-                receivedData[0] == 0xFE &&
-                receivedData[1] == 0x55 &&
-                receivedData[2] == 0xBB &&
-                receivedData[3] == 0x02 &&
-                receivedData[4] == 0x80 &&
-                receivedData[5] == 0xE0)
-            {
-                // 获取校验和的最低有效位
-                byte checkSumBit = GetCheckSumBit(receivedData);
-                List<byte> response = new List<byte> { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0xF0 };
-                response.Add(checkSumBit);
-                return response.ToArray();
-            }
-            //AA样棒扫码
-            else if (receivedData[0] == 0xFE &&
-                receivedData[1] == 0x55 &&
-                receivedData[2] == 0xAA &&
-                receivedData[3] == 0x02 &&
-                receivedData[4] == 0x80 &&
-                receivedData[5] == 0xE0 )
-            {
-
-                // 获取条码长度字节数组
-                byte[] barcodeLength = _scanGangBasic.GetBarcodeLength();
-
-                // 获取条码字节数组
-                byte[] barcodeBytes = _scanGangBasic.GetBarcodeBytes();
-
-                // 获取校验和的最低有效位
-                byte checkSumBit = GetCheckSumBit(receivedData);
-
-                // 返回拼接后的字节数组
-                List<byte> response = new List<byte> { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0xFA };
-                response.AddRange(barcodeLength);  // 添加条码长度
-                response.AddRange(barcodeBytes);   // 添加条码字节
-
-                //TODO 缺陷允许误差(Float:4Byte) 样棒缺陷数量(Int:4Byte) 缺陷位置(N * Float:4Bytes)]
-
-
-
-                response.Add(checkSumBit);
-                return response.ToArray();
-            }
-            //BB样棒扫码
-            else if (receivedData[0] == 0xFE &&
-                receivedData[1] == 0x55 &&
-                receivedData[2] == 0xBB &&
-                receivedData[3] == 0x02 &&
-                receivedData[4] == 0x80 &&
-                receivedData[5] == 0xE0 )
-            {
-
-                // 获取条码长度字节数组
-                byte[] barcodeLength = _scanGangBasic.GetBarcodeLength();
-
-                // 获取条码字节数组
-                byte[] barcodeBytes = _scanGangBasic.GetBarcodeBytes();
-
-                // 获取校验和的最低有效位
-                byte checkSumBit = GetCheckSumBit(receivedData);
-
-                // 返回拼接后的字节数组
-                List<byte> response = new List<byte> { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0xFA };
-                response.AddRange(barcodeLength);  // 添加条码长度
-                response.AddRange(barcodeBytes);   // 添加条码字节
-
-                //TODO 缺陷允许误差(Float:4Byte) 样棒缺陷数量(Int:4Byte) 缺陷位置(N * Float:4Bytes)]
-
-
-
-                response.Add(checkSumBit);
-                return response.ToArray();
+                Console.WriteLine("检测到数据的第一位为 0xA0, 返回 false.");
+                return false; // 返回 false
             }
 
-            //AA产品扫码
-            else if (receivedData[0] == 0xFE &&
-                receivedData[1] == 0x55 &&
-                receivedData[2] == 0xAA &&
-                receivedData[3] == 0x02 &&
-                receivedData[4] == 0x80 &&
-                receivedData[5] == 0xE0 )
+            // 如果没有返回，则继续处理
+            Console.WriteLine("开始处理最终数据...");
+
+            // 提取缺陷数量
+            int defectCountAA = BitConverter.ToInt32(aaData, 1);  // 读取 aaData 中缺陷数量 (4字节)
+            int defectCountBB = BitConverter.ToInt32(bbData, 1);  // 读取 bbData 中缺陷数量 (4字节)
+
+            // 提取缺陷检出位置
+            byte[] defectsAA = aaData.Skip(5).Take(defectCountAA).ToArray();  // 从第 5 位开始，提取缺陷检出标志
+            byte[] defectsBB = bbData.Skip(5).Take(defectCountBB).ToArray();  // 从第 5 位开始，提取缺陷检出标志
+
+            // 对 AA 和 BB 的缺陷检出结果做或运算
+            byte[] combinedDefects = new byte[defectCountAA];
+            for (int i = 0; i < defectCountAA; i++)
             {
-                // 获取条码长度字节数组
-                byte[] barcodeLength = _scanGangBasic.GetBarcodeLength();
-
-                // 获取条码字节数组
-                byte[] barcodeBytes = _scanGangBasic.GetBarcodeBytes();
-
-                // 获取校验和的最低有效位
-                byte checkSumBit = GetCheckSumBit(receivedData);
-
-                // 返回拼接后的字节数组
-                List<byte> response = new List<byte> { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0xFB };
-                response.AddRange(barcodeLength);  // 添加条码长度
-                response.AddRange(barcodeBytes);   // 添加条码字节
-
-                //TODO 批次长度(4Bytes) 批次号
-
-                response.Add(checkSumBit);
-                return response.ToArray();
+                // 如果 AA 或 BB 中对应位置是 0xA0（检测出缺陷），则认为该位置缺陷被检测到
+                combinedDefects[i] = (byte)(defectsAA[i] | defectsBB[i]);
             }
 
-            //BB产品扫码
-            else if (receivedData[0] == 0xFE &&
-                receivedData[1] == 0x55 &&
-                receivedData[2] == 0xBB &&
-                receivedData[3] == 0x02 &&
-                receivedData[4] == 0x80 &&
-                receivedData[5] == 0xE0 )
+            // 检查是否所有缺陷都被检测到
+            bool allDefectsDetected = combinedDefects.All(defect => defect == 0xA0);  // 如果所有位都为 0xA0，说明都检测到了
+
+            if (allDefectsDetected)
             {
-                // 获取条码长度字节数组
-                byte[] barcodeLength = _scanGangBasic.GetBarcodeLength();
-
-                // 获取条码字节数组
-                byte[] barcodeBytes = _scanGangBasic.GetBarcodeBytes();
-
-                // 获取校验和的最低有效位
-                byte checkSumBit = GetCheckSumBit(receivedData);
-
-                // 返回拼接后的字节数组
-                List<byte> response = new List<byte> { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0xFB };
-                response.AddRange(barcodeLength);  // 添加条码长度
-                response.AddRange(barcodeBytes);   // 添加条码字节
-
-                //TODO 批次长度(4Bytes) 批次号
-
-
-                response.Add(checkSumBit);
-                return response.ToArray();
+                Console.WriteLine("所有缺陷都已被检测出来。");
+                return true;
             }
-
-            //上一次心跳AA收到样棒条码
-            else if (receivedData[0] == 0xFE &&
-                receivedData[1] == 0x55 &&
-                receivedData[2] == 0xAA &&
-                receivedData[3] == 0x02 &&
-                receivedData[4] == 0x80 &&
-                receivedData[5] == 0xE3)
+            else
             {
-
-                // 获取校验和的最低有效位
-                byte checkSumBit = GetCheckSumBit(receivedData);
-                List<byte> response = new List<byte> { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0xF3 };
-                response.Add(checkSumBit);
-                return response.ToArray();
-            }
-            //上一次心跳AA收到试件条码及批次
-            else if (receivedData[0] == 0xFE &&
-                receivedData[1] == 0x55 &&
-                receivedData[2] == 0xAA &&
-                receivedData[3] == 0x02 &&
-                receivedData[4] == 0x80 &&
-                receivedData[5] == 0xE4 )
-            {
-                // 获取校验和的最低有效位
-                byte checkSumBit = GetCheckSumBit(receivedData);
-                List<byte> response = new List<byte> { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0xF4 };
-                response.Add(checkSumBit);
-                return response.ToArray();
-            }
-            //上一次心跳BB收到样棒条码
-            else if (receivedData[0] == 0xFE &&
-                receivedData[1] == 0x55 &&
-                receivedData[2] == 0xBB &&
-                receivedData[3] == 0x02 &&
-                receivedData[4] == 0x80 &&
-                receivedData[5] == 0xE3)
-            {
-                // 获取校验和的最低有效位
-                byte checkSumBit = GetCheckSumBit(receivedData);
-                List<byte> response = new List<byte> { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0xF3 };
-                response.Add(checkSumBit);
-                return response.ToArray();
-            }
-            //上一次心跳收BB到试件条码及批次
-            else if (receivedData[0] == 0xFE &&
-                receivedData[1] == 0x55 &&
-                receivedData[2] == 0xBB &&
-                receivedData[3] == 0x02 &&
-                receivedData[4] == 0x80 &&
-                receivedData[5] == 0xE4 )
-            {
-                // 获取校验和的最低有效位
-                byte checkSumBit = GetCheckSumBit(receivedData);
-                List<byte> response = new List<byte> { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0xF4 };
-                response.Add(checkSumBit);
-                return response.ToArray();
-            }
-
-            //TODO: 其他情况
-            else 
-            {
-                return null;
+                Console.WriteLine("某些缺陷未被检测出来。");
+                return false;
             }
         }
+
+        //默认心跳响应
+        private byte[] GenerateDefaultResponseAA()
+        {
+            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0 };
+            byte checkSum = CalculateCheckSum(response);
+
+            // 创建一个新数组，包含校验位
+            return response.Concat(new byte[] { checkSum }).ToArray();
+        }
+
+        private byte[] GenerateDefaultResponseBB()
+        {
+            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF0 };
+            byte checkSum = CalculateCheckSum(response);
+
+            // 创建一个新数组，包含校验位
+            return response.Concat(new byte[] { checkSum }).ToArray();
+        }
+
+        //发送条码信息给客户端
+        public async Task SendBarcodeInfoToClients(byte[] barcodeLength, byte[] barcodeBytes)
+        {
+            foreach (var client in _clients.Keys.ToArray())
+            {
+                if (!client.Connected) continue;
+
+                var clientId = _clientIdentifiers.GetValueOrDefault(client, null);
+                if (clientId == null) continue;
+
+                // 调用 GenerateBarcodeResponse 来生成响应消息
+                var responseMessage = GenerateBarcodeResponse(clientId, barcodeLength, barcodeBytes);
+
+                // 发送消息到客户端
+                await SendMessageAsync(client, responseMessage);
+            }
+        }
+
+        //生成条码响应
+        private byte[] GenerateBarcodeResponse(string clientId, byte[] length, byte[] data)
+        {
+            var prefix = clientId == "AA"
+                ? new byte[] { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xFB }
+                : new byte[] { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xFB };
+
+            List<byte> response = new List<byte>(prefix);
+            response.AddRange(length);
+            response.AddRange(data);
+            response.Add(CalculateCheckSum(response.ToArray()));
+            return response.ToArray();
+        }
+
+        //AA回复心跳时，携带样棒信息
+        private byte[] HandleHeartbeatAATest(byte[] input)
+        {
+            byte[] codeBytes = ConfigDataStore.CodeBytes;
+            byte[] toleranceBytes = ConfigDataStore.ToleranceBytes;
+            byte[] countBytes = ConfigDataStore.CountBytes;
+            byte[] defectPositionsBytes = ConfigDataStore.DefectPositionsBytes;
+            // 计算条码长度，并转换为 4 字节数组（默认小端）
+            int sampleLength = codeBytes.Length;
+            byte[] lengthBytes = BitConverter.GetBytes(sampleLength);
+            if (sampleLength == 0)
+            {
+                MessageBox.Show("无样棒信息，请输入样棒信息后重试！", "警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+                return new byte[] { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0};
+            }
+            // 组装返回数据
+            List<byte> response = new List<byte> { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xFA };
+            response.AddRange(lengthBytes);
+            response.AddRange(codeBytes);
+            response.AddRange(toleranceBytes);
+            response.AddRange(countBytes);
+            response.AddRange(defectPositionsBytes);
+            response.Add(CalculateCheckSum(response.ToArray()));
+            return response.ToArray();
+        }
+        //BB回复心跳时，携带样棒信息
+        private byte[] HandleHeartbeatBBTest(byte[] input)
+        {
+            byte[] codeBytes = ConfigDataStore.CodeBytes;
+            byte[] toleranceBytes = ConfigDataStore.ToleranceBytes;
+            byte[] countBytes = ConfigDataStore.CountBytes;
+            byte[] defectPositionsBytes = ConfigDataStore.DefectPositionsBytes;
+            // 计算条码长度，并转换为 4 字节数组（默认小端）
+            int sampleLength = codeBytes.Length;
+            byte[] lengthBytes = BitConverter.GetBytes(sampleLength);
+            if (sampleLength == 0)
+            {
+                MessageBox.Show("无样棒信息，请输入样棒信息后重试！", "警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+                return new byte[] { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF0 };
+            }
+            // 组装返回数据
+            List<byte> response = new List<byte> { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xFA };
+            response.AddRange(lengthBytes);
+            response.AddRange(codeBytes);
+            response.AddRange(toleranceBytes);
+            response.AddRange(countBytes);
+            response.AddRange(defectPositionsBytes);
+            response.Add(CalculateCheckSum(response.ToArray()));
+            return response.ToArray();
+        }
+
+        //AA确认样棒信息成功送达仪器（回复E4）
+        private byte[] HandleScanAASuccessTest(byte[] input)
+        {
+            // 更新计数器
+            scanAASuccessCount++;
+            /* // 检查是否 AA 和 BB 都已经收到
+            CheckForNextStep();*/
+            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF4 };
+            byte checkSum = CalculateCheckSum(response);
+            return response.Concat(new byte[] { checkSum }).ToArray();
+        }
+        //BB确认样棒信息成功送达仪器（回复E4）
+        private byte[] HandleScanBBSuccessTest(byte[] input)
+        {
+            // 更新计数器
+            scanBBSuccessCount++;
+            // 检查是否 AA 和 BB 都已经收到
+            // CheckForNextStep();
+            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF4 };
+            byte checkSum = CalculateCheckSum(response);
+            return response.Concat(new byte[] { checkSum }).ToArray();
+        }
+
+        // AA回复心跳时，携带试件信息
+        private byte[] HandleHeartbeatAA(byte[] input)
+        {
+            // 2. 检查是否有条码信息
+            byte[] barcodeLength = _scanGangBasic.GetBarcodeLength();
+            byte[] barcodeBytes = _scanGangBasic.GetBarcodeBytes();
+
+            // 3. 根据协议返回响应
+            if (barcodeLength.Length > 0 && barcodeBytes.Length > 0)
+            {
+                return GenerateBarcodeResponse("AA", barcodeLength, barcodeBytes);
+            }
+            else
+            {
+                //返回默认心跳
+                byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0 };
+                byte checkSum = CalculateCheckSum(response);
+                // 创建一个新数组，包含校验位
+                return response.Concat(new byte[] { checkSum }).ToArray();
+            }
+        }
+        // BB回复心跳时，携带试件信息
+        private byte[] HandleHeartbeatBB(byte[] input)
+        {
+            // 2. 检查是否有条码信息
+            byte[] barcodeLength = _scanGangBasic.GetBarcodeLength();
+            byte[] barcodeBytes = _scanGangBasic.GetBarcodeBytes();
+
+            // 3. 根据协议返回响应
+            if (barcodeLength.Length > 0 && barcodeBytes.Length > 0)
+            {
+                return GenerateBarcodeResponse("BB", barcodeLength, barcodeBytes);
+            }
+            else
+            {
+                byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF0 };
+                //返回默认心跳
+                byte checkSum = CalculateCheckSum(response);
+                // 创建一个新数组，包含校验位
+                return response.Concat(new byte[] { checkSum }).ToArray();
+            }
+        }
+        //AA确认试件信息成功送达仪器（回复E4）
+        private byte[] HandleScanAASuccess(byte[] input) {
+            // 更新计数器
+            scanAASuccessCount++;
+            /* // 检查是否 AA 和 BB 都已经收到
+            CheckForNextStep();*/
+            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF4 };
+            byte checkSum = CalculateCheckSum(response);
+            return response.Concat(new byte[] { checkSum }).ToArray();
+        }
+        //BB确认试件信息成功送达仪器（回复E4）
+        private byte[] HandleScanBBSuccess(byte[] input)
+        {
+            // 更新计数器
+            scanBBSuccessCount++;
+            // 检查是否 AA 和 BB 都已经收到
+            // CheckForNextStep();
+            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF4 };
+            byte checkSum = CalculateCheckSum(response);
+            return response.Concat(new byte[] { checkSum }).ToArray();
+        }
+
+/*        // 检查是否可以执行下一步操作
+        private void CheckForNextStep()
+        {
+            // 当 AA 和 BB 都收到消息时，执行下一步操作
+            if (scanAASuccessCount > 0 && scanBBSuccessCount > 0)
+            {
+                // 执行下一步操作
+                ExecuteNextStep();
+
+                // 重置计数器，避免重复执行
+                scanAASuccessCount = 0;
+                scanBBSuccessCount = 0;
+            }
+        }*/
+        
+
     }
 }

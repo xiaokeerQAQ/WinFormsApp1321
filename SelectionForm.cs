@@ -15,6 +15,8 @@ namespace WinFormsApp1321
         public string StandardFilePath { get; private set; } = "";//文件路径
         public int CalibrationCount { get; private set; } = 0;//次数
         public string SystemFilePath { get; private set; } = @"C:\system\system.ini";
+        public static string SampleInfoText { get; set; }
+
         public SelectionForm()
         {
             InitializeComponent();
@@ -146,6 +148,8 @@ namespace WinFormsApp1321
 
         private void button3_Click(object sender, EventArgs e)
         {
+            // 创建 ReadTool 类的实例
+            ReadTool readTool = new ReadTool();
             OpenFileDialog openFileDialog = new OpenFileDialog();
             openFileDialog.Title = "请选择标样文件";
             openFileDialog.Filter = "文本文件 (*.ini)|*.ini|所有文件 (*.*)|*.*";
@@ -155,11 +159,26 @@ namespace WinFormsApp1321
                 StandardFilePath = openFileDialog.FileName;
                 textBox1.Text = StandardFilePath;  // 更新文本框显示
             }
+            // 读取配置并转换为字节数组
+            byte[] codeBytes = readTool.ReadStringAsBytes("Code", "code");
+            byte[] toleranceBytes = readTool.ReadFloatAsBytes("Tolerance", "tolerance");
+            byte[] countBytes = readTool.ReadIntAsBytes("Count", "count");
+            byte[] defectPositionsBytes = readTool.ReadDefectPositionsAsBytes("DefectPositions", "d1");
+            // 将字节数组存储在静态类中
+            ConfigDataStore.CodeBytes = codeBytes;
+            ConfigDataStore.ToleranceBytes = toleranceBytes;
+            ConfigDataStore.CountBytes = countBytes;
+            ConfigDataStore.DefectPositionsBytes = defectPositionsBytes;
         }
 
         private void textBox2_TextChanged(object sender, EventArgs e)
         {
 
+        }
+
+        private void textBox4_TextChanged(object sender, EventArgs e)
+        {
+            SampleInfoText = textBox4.Text;
         }
     }
 }

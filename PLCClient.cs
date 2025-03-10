@@ -73,12 +73,23 @@ namespace WinFormsApp1321
         {
             byte[] command = BuildReadDCommand(address);
             byte[] response = await SendAndReceiveAsync(command);
-            if (response == null || response.Length < 15) return null; // 确保响应长度足够
+
+            // 确保响应不为空且长度足够
+            if (response == null || response.Length < 15)
+            {
+                Console.WriteLine("❌ 无效的 PLC 响应（数据为空或长度不足）");
+                return null;
+            }                                                                       
+            // 检查结束代码 (response[9] 和 response[10] 组成的 2 字节)
+            if (response[9] != 0x00 || response[10] != 0x00)
+            {
+                Console.WriteLine($"⚠️ PLC 返回异常，结束代码: 0x{response[9]:X2}{response[10]:X2}");
+                return null; // 你也可以选择返回特定错误信息
+            }
 
             // 提取 response[9] 到 response[14] 的字节并返回
-            byte[] data = new byte[6];
-            Array.Copy(response, 9, data, 0, 6);
-
+            byte[] data = new byte[4];
+            Array.Copy(response, 11, data, 0, 4);
             return data;
         }
 
