@@ -335,7 +335,7 @@ namespace WinFormsApp1321
             for (int i = 0; i < defectCountAA; i++)
             {
                 // 如果 AA 或 BB 中对应位置是 0xA0（检测出缺陷），则认为该位置缺陷被检测到
-                combinedDefects[i] = (byte)(defectsAA[i] | defectsBB[i]);
+                combinedDefects[i] = (byte)((defectsAA[i] == 0xA0 || defectsBB[i] == 0xA0) ? 0xA0 : 0xA1);
             }
 
             // 检查是否所有缺陷都被检测到
