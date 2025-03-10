@@ -338,6 +338,7 @@ namespace WinFormsApp1321
                 combinedDefects[i] = (byte)((defectsAA[i] == 0xA0 || defectsBB[i] == 0xA0) ? 0xA0 : 0xA1);
             }
 
+
             // 检查是否所有缺陷都被检测到
             bool allDefectsDetected = combinedDefects.All(defect => defect == 0xA0);  // 如果所有位都为 0xA0，说明都检测到了
 
