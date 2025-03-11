@@ -20,7 +20,7 @@ namespace WinFormsApp1321
         private readonly ScanGangBasic _scanGangBasic;
         private readonly PLCClient _plcClient;
         private readonly ReadTool _readTool;
-        private  Dictionary<string, Func<byte[], byte[]>> _responseHandlers;
+        private Dictionary<string, Func<byte[], byte[]>> _responseHandlers;
         private readonly Dictionary<string, Func<byte[], byte[]>> _responseHandlersTest;
         private readonly Dictionary<string, Func<byte[], byte[]>> _responseHandlersFormal;
         private readonly object _lock = new();
@@ -57,7 +57,7 @@ namespace WinFormsApp1321
                 { "FE-55-BB-02-00-80-E0", HandleHeartbeatBB },
                 { "FE-55-AA-02-00-80-E4", HandleScanAASuccess },
                 { "FE-55-BB-02-00-80-E4", HandleScanBBSuccess }
-                
+
             };
 
             _responseHandlersTest = new Dictionary<string, Func<byte[], byte[]>>
@@ -190,7 +190,7 @@ namespace WinFormsApp1321
             if (receivedData.Length < 7) return new byte[] { 0xFF, 0xFF };
 
             var key = BitConverter.ToString(receivedData, 0, 7);
-            if(Mode == 1)
+            if (Mode == 1)
             {
                 _responseHandlers = _responseHandlersTest;
             }
@@ -457,10 +457,11 @@ namespace WinFormsApp1321
         //AA回复心跳时，携带样棒信息
         private byte[] HandleHeartbeatAATest(byte[] input)
         {
-            byte[] codeBytes = ConfigDataStore.CodeBytes;
-            byte[] toleranceBytes = ConfigDataStore.ToleranceBytes;
-            byte[] countBytes = ConfigDataStore.CountBytes;
-            byte[] defectPositionsBytes = ConfigDataStore.DefectPositionsBytes;
+            SelectionForm selectionForm = new SelectionForm();
+            byte[] codeBytes = selectionForm.CodeBytes;
+            byte[] toleranceBytes = selectionForm.ToleranceBytes;
+            byte[] countBytes = selectionForm.CountBytes;
+            byte[] defectPositionsBytes = selectionForm.DefectPositionsBytes;
             // 计算条码长度，并转换为 4 字节数组（默认小端）
             int sampleLength = codeBytes.Length;
             byte[] lengthBytes = BitConverter.GetBytes(sampleLength);
@@ -468,7 +469,7 @@ namespace WinFormsApp1321
             {
                 MessageBox.Show("无样棒信息，请输入样棒信息后重试！", "警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
-                return new byte[] { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0};
+                return new byte[] { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0 };
             }
             // 组装返回数据
             List<byte> response = new List<byte> { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xFA };
@@ -483,10 +484,11 @@ namespace WinFormsApp1321
         //BB回复心跳时，携带样棒信息
         private byte[] HandleHeartbeatBBTest(byte[] input)
         {
-            byte[] codeBytes = ConfigDataStore.CodeBytes;
-            byte[] toleranceBytes = ConfigDataStore.ToleranceBytes;
-            byte[] countBytes = ConfigDataStore.CountBytes;
-            byte[] defectPositionsBytes = ConfigDataStore.DefectPositionsBytes;
+            SelectionForm selectionForm = new SelectionForm();
+            byte[] codeBytes = selectionForm.CodeBytes;
+            byte[] toleranceBytes = selectionForm.ToleranceBytes;
+            byte[] countBytes = selectionForm.CountBytes;
+            byte[] defectPositionsBytes = selectionForm.DefectPositionsBytes;
             // 计算条码长度，并转换为 4 字节数组（默认小端）
             int sampleLength = codeBytes.Length;
             byte[] lengthBytes = BitConverter.GetBytes(sampleLength);
@@ -573,7 +575,8 @@ namespace WinFormsApp1321
             }
         }
         //AA确认试件信息成功送达仪器（回复E4）
-        private byte[] HandleScanAASuccess(byte[] input) {
+        private byte[] HandleScanAASuccess(byte[] input)
+        {
             // 更新计数器
             scanAASuccessCount++;
             /* // 检查是否 AA 和 BB 都已经收到
@@ -594,21 +597,21 @@ namespace WinFormsApp1321
             return response.Concat(new byte[] { checkSum }).ToArray();
         }
 
-/*        // 检查是否可以执行下一步操作
-        private void CheckForNextStep()
-        {
-            // 当 AA 和 BB 都收到消息时，执行下一步操作
-            if (scanAASuccessCount > 0 && scanBBSuccessCount > 0)
-            {
-                // 执行下一步操作
-                ExecuteNextStep();
+        /*        // 检查是否可以执行下一步操作
+                private void CheckForNextStep()
+                {
+                    // 当 AA 和 BB 都收到消息时，执行下一步操作
+                    if (scanAASuccessCount > 0 && scanBBSuccessCount > 0)
+                    {
+                        // 执行下一步操作
+                        ExecuteNextStep();
 
-                // 重置计数器，避免重复执行
-                scanAASuccessCount = 0;
-                scanBBSuccessCount = 0;
-            }
-        }*/
-        
+                        // 重置计数器，避免重复执行
+                        scanAASuccessCount = 0;
+                        scanBBSuccessCount = 0;
+                    }
+                }*/
+
 
     }
 }

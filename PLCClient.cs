@@ -68,30 +68,29 @@ namespace WinFormsApp1321
             }
         }
 
-        // 读取 D 寄存器 (异步) (例如: 读取 D100)
-        public async Task<byte[]> ReadDRegisterAsync(int address)
+        public async Task<int[]> ReadDRegisterAsync(int address, int count)
         {
-            byte[] command = BuildReadDCommand(address);
+            byte[] command = BuildReadDCommand(address, count);
             byte[] response = await SendAndReceiveAsync(command);
 
-            // 确保响应不为空且长度足够
-            if (response == null || response.Length < 15)
+            // 计算期望的响应长度：
+            int expectedLength = 7 + 2 + 2 + (count * 2); // 7B (帧头) + 2B (数据长度) + 2B (结束代码) + 数据区(count * 2)
+            if (response == null || response.Length < expectedLength) return null; // 确保响应长度足够
+
+            // 提取数据区 (从索引 11 开始, 即 7 + 2 + 2)
+            byte[] data = new byte[count * 2];
+            Array.Copy(response, 11, data, 0, data.Length);
+
+            // 解析 16 位整数 (每个寄存器 2 字节, 低字节在前)
+            int[] values = new int[count];
+            for (int i = 0; i < count; i++)
             {
-                Console.WriteLine("❌ 无效的 PLC 响应（数据为空或长度不足）");
-                return null;
-            }                                                                       
-            // 检查结束代码 (response[9] 和 response[10] 组成的 2 字节)
-            if (response[9] != 0x00 || response[10] != 0x00)
-            {
-                Console.WriteLine($"⚠️ PLC 返回异常，结束代码: 0x{response[9]:X2}{response[10]:X2}");
-                return null; // 你也可以选择返回特定错误信息
+                values[i] = BitConverter.ToInt16(data, i * 2);
             }
 
-            // 提取 response[9] 到 response[14] 的字节并返回
-            byte[] data = new byte[4];
-            Array.Copy(response, 11, data, 0, 4);
-            return data;
+            return values;
         }
+
 
 
         //    写入 D 寄存器 (异步) (例如: D100 = 5678)
@@ -109,8 +108,12 @@ namespace WinFormsApp1321
                 Console.WriteLine("❌ 响应无效，长度不足");
                 return false;
             }
-            // 检查响应中的结束代码（假设结束代码在第9和第10字节）
-            int endCode = BitConverter.ToUInt16(response, 9);
+            // 计算结束代码所在的位置
+            int endCodeIndex = response.Length - 2;
+
+            // 读取结束代码（最后两个字节，小端模式）
+            int endCode = BitConverter.ToUInt16(response, endCodeIndex);
+
 
             // 如果结束代码为0x0000，表示写入成功
             if (endCode == 0x0000)
@@ -132,23 +135,24 @@ namespace WinFormsApp1321
             }
         }
 
-        // 生成读取 D 寄存器的 SLMP 指令
-        private byte[] BuildReadDCommand(int address)
+        private byte[] BuildReadDCommand(int address, int count)
         {
             return new byte[]
             {
-            0x50, 0x00, 0x00, 0xFF, 0xFF, 0x03, 0x00,  // 头部
-            0x0C, 0x00,  // 数据长度12
-            0x00, 0x00,  // 保留
-            0x01, 0x04,  // 指令
-            0x00, 0x00,  // 子命令
-            (byte)(address & 0xFF),          // 低字节
-            (byte)((address >> 8) & 0xFF),   // 中间字节
-            (byte)((address >> 16) & 0xFF),  // 高字节
-            0xA8,// D寄存器标识符 (0xA8)
-            0x02, 0x00  //软元件点数
+        0x50, 0x00, 0x00, 0xFF, 0xFF, 0x03, 0x00,  // 头部
+        0x0C, 0x00,  // 数据长度 12
+        0x00, 0x00,  // 保留
+        0x01, 0x04,  // 指令
+        0x00, 0x00,  // 子命令
+        (byte)(address & 0xFF),          // 低字节
+        (byte)((address >> 8) & 0xFF),   // 中间字节
+        (byte)((address >> 16) & 0xFF),  // 高字节
+        0xA8,                            // D寄存器标识符 (0xA8)
+        (byte)(count & 0xFF),            // 读取点数低字节
+        (byte)((count >> 8) & 0xFF)      // 读取点数高字节
             };
         }
+
 
         // 生成写入 D 寄存器的 SLMP 指令
         private byte[] BuildWriteDCommand(int address, int value)
@@ -164,7 +168,7 @@ namespace WinFormsApp1321
             (byte)((address >> 8) & 0xFF),   // 中间字节
             (byte)((address >> 16) & 0xFF),  // 高字节
             (byte)(address & 0xFF), (byte)((address >> 8) & 0xFF),  // 地址
-            0xA8,  // D寄存器标识符 (0xA8)
+            0xA8,  // D寄存器z标识符 (0xA8)
             0x01, 0x00,  //软元件点数
             // 将 value 按照 2 字节插入
            (byte)(value & 0xFF),  // 低字节

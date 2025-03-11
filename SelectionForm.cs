@@ -15,7 +15,21 @@ namespace WinFormsApp1321
         public string StandardFilePath { get; private set; } = "";//文件路径
         public int CalibrationCount { get; private set; } = 0;//次数
         public string SystemFilePath { get; private set; } = @"C:\system\system.ini";
-        public static string SampleInfoText { get; set; }
+        private string barcode = ""; // 记录条码信息
+        private readonly ReadTool _readTool;
+
+        // 定义变量存储读取的值
+        private byte[] codeBytes;  // 存储 code
+        private byte[] toleranceBytes;  // 存储公差
+        private byte[] countBytes;  // 存储数量
+        private byte[] defectPositionsBytes;  // 存储所有缺陷位置
+
+
+        // 公开属性供其他类访问
+        public byte[] CodeBytes => codeBytes;  // 只读属性
+        public byte[] ToleranceBytes => toleranceBytes;  // 只读属性
+        public byte[] CountBytes => countBytes;  // 只读属性
+        public byte[] DefectPositionsBytes => defectPositionsBytes;  // 只读属性
 
         public SelectionForm()
         {
@@ -24,7 +38,11 @@ namespace WinFormsApp1321
             textBox3.ReadOnly = true;
             CalibrationCount = ReadCalibrationCount();
             textBox2.Text = CalibrationCount.ToString();
+
+
         }
+
+
         private int ReadCalibrationCount()
         {
             if (File.Exists(SystemFilePath))
@@ -148,29 +166,63 @@ namespace WinFormsApp1321
 
         private void button3_Click(object sender, EventArgs e)
         {
-            // 创建 ReadTool 类的实例
-            ReadTool readTool = new ReadTool();
-            OpenFileDialog openFileDialog = new OpenFileDialog();
-            openFileDialog.Title = "请选择标样文件";
-            openFileDialog.Filter = "文本文件 (*.ini)|*.ini|所有文件 (*.*)|*.*";
+            OpenFileDialog openFileDialog = new OpenFileDialog
+            {
+                Title = "请选择标样文件",
+                Filter = "文本文件 (*.ini)|*.ini|所有文件 (*.*)|*.*"
+            };
 
             if (openFileDialog.ShowDialog() == DialogResult.OK)
             {
                 StandardFilePath = openFileDialog.FileName;
                 textBox1.Text = StandardFilePath;  // 更新文本框显示
+
+                // 使用 ReadTool 读取数据
+                ReadTool readTool = new ReadTool(StandardFilePath);
+
+                // 读取 code 并显示（需要转换为字符串）
+                codeBytes = readTool.ReadStringAsBytes("Code", "code");
+                textBox4.Text = Encoding.ASCII.GetString(codeBytes);
+                textBox4.ReadOnly = true; // 禁止编辑
+
+                // 读取公差、数量、缺陷位置
+                toleranceBytes = readTool.ReadFloatAsBytes("Tolerance", "tolerance");
+                countBytes = readTool.ReadIntAsBytes("Count", "count");
+                defectPositionsBytes = readTool.ReadAllDefectPositionsAsBytes("DefectPositions");
             }
-            // 读取配置并转换为字节数组
-            byte[] codeBytes = readTool.ReadStringAsBytes("Code", "code");
-            byte[] toleranceBytes = readTool.ReadFloatAsBytes("Tolerance", "tolerance");
-            byte[] countBytes = readTool.ReadIntAsBytes("Count", "count");
-            byte[] defectPositionsBytes = readTool.ReadDefectPositionsAsBytes("DefectPositions", "d1");
-            // 将字节数组存储在静态类中
-            ConfigDataStore.CodeBytes = codeBytes;
-            ConfigDataStore.ToleranceBytes = toleranceBytes;
-            ConfigDataStore.CountBytes = countBytes;
-            ConfigDataStore.DefectPositionsBytes = defectPositionsBytes;
         }
 
+        private string ReadBarcodeFromFile(string filePath)
+        {
+            if (!File.Exists(filePath))
+                return "";
+
+            try
+            {
+                string[] lines = File.ReadAllLines(filePath);
+                bool listSectionFound = false;
+
+                foreach (string line in lines)
+                {
+                    if (line.Trim().Equals("[List]"))
+                    {
+                        listSectionFound = true;
+                        continue;
+                    }
+
+                    if (listSectionFound && !string.IsNullOrWhiteSpace(line))
+                    {
+                        return line.Trim(); // 读取 [List] 下第一行的条码
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("读取标样文件失败：" + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+
+            return "";
+        }
         private void textBox2_TextChanged(object sender, EventArgs e)
         {
 
@@ -178,7 +230,17 @@ namespace WinFormsApp1321
 
         private void textBox4_TextChanged(object sender, EventArgs e)
         {
-            SampleInfoText = textBox4.Text;
+
+        }
+
+        private void label5_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void textBox4_TextChanged_1(object sender, EventArgs e)
+        {
+
         }
     }
 }

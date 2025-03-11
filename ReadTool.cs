@@ -6,40 +6,42 @@ using System.Text;
 
 public class ReadTool
 {
-    private string _filePath = @"C:\system\system.ini";
     private List<string> _fileLines;
 
-    public ReadTool()
+    public ReadTool(string filePath)
     {
-        // 缓存文件内容
-        _fileLines = File.ReadAllLines(_filePath).ToList();
+        if (!File.Exists(filePath))
+        {
+            throw new FileNotFoundException("文件未找到: " + filePath);
+        }
+        _fileLines = File.ReadAllLines(filePath).ToList();
     }
 
-    // 读取指定 section 下的字符串配置，并返回 byte[]
+    // 读取字符串并转换为 byte[]
     public byte[] ReadStringAsBytes(string section, string key)
     {
         string value = ReadString(section, key);
         return string.IsNullOrEmpty(value) ? new byte[0] : Encoding.ASCII.GetBytes(value);
     }
 
-    // 读取指定 section 下的浮动值配置，并返回 byte[]
+    // 读取浮点数并转换为 byte[]
     public byte[] ReadFloatAsBytes(string section, string key)
     {
         float value = ReadFloat(section, key);
         return BitConverter.GetBytes(value);
     }
 
-    // 读取指定 section 下的整数配置，并返回 byte[]
+    // 读取整数并转换为 byte[]
     public byte[] ReadIntAsBytes(string section, string key)
     {
         int value = ReadInt(section, key);
         return BitConverter.GetBytes(value);
     }
 
-    // 读取指定 section 下的多个整数值，并返回 byte[] 数组
-    public byte[] ReadDefectPositionsAsBytes(string section, string key)
+    // 读取多个 dX 位置数据并转换为 byte[]
+    public byte[] ReadAllDefectPositionsAsBytes(string section)
     {
-        List<int> positions = ReadDefectPositions(section, key);
+        List<int> positions = ReadAllDefectPositions(section);
         List<byte> bytes = new List<byte>();
         foreach (var position in positions)
         {
@@ -48,7 +50,7 @@ public class ReadTool
         return bytes.ToArray();
     }
 
-    // 读取指定 section 下的字符串配置
+    // 读取字符串值
     private string ReadString(string section, string key)
     {
         bool inSection = false;
@@ -60,13 +62,11 @@ public class ReadTool
                 continue;
             }
 
-            // 如果已进入 section 并找到目标 key
             if (inSection && line.StartsWith(key))
             {
                 return line.Split('=')[1].Trim();
             }
 
-            // 如果遇到下一个 section，退出
             if (line.StartsWith("["))
             {
                 inSection = false;
@@ -75,38 +75,51 @@ public class ReadTool
         return string.Empty;
     }
 
-    // 读取指定 section 下的浮动值配置
+    // 读取浮点数
     private float ReadFloat(string section, string key)
     {
         string value = ReadString(section, key);
-        if (float.TryParse(value, out float result))
-        {
-            return result;
-        }
-        return 0.0f;
+        return float.TryParse(value, out float result) ? result : 0.0f;
     }
 
-    // 读取指定 section 下的整数配置
+    // 读取整数
     private int ReadInt(string section, string key)
     {
         string value = ReadString(section, key);
-        if (int.TryParse(value, out int result))
-        {
-            return result;
-        }
-        return 0;
+        return int.TryParse(value, out int result) ? result : 0;
     }
 
-    // 读取指定 section 下的多个整数值（缺陷位置）
-    private List<int> ReadDefectPositions(string section, string key)
+    // 读取多个 dX 位置（动态解析 d1, d2, d3...）
+    private List<int> ReadAllDefectPositions(string section)
     {
-        string value = ReadString(section, key);
-        if (!string.IsNullOrEmpty(value))
+        bool inSection = false;
+        List<int> positions = new List<int>();
+
+        foreach (var line in _fileLines)
         {
-            return value.Split(',')
-                        .Select(v => int.TryParse(v, out int result) ? result : 0)
-                        .ToList();
+            if (line.StartsWith($"[{section}]"))
+            {
+                inSection = true;
+                continue;
+            }
+
+            if (inSection)
+            {
+                if (line.StartsWith("["))
+                {
+                    break; // 遇到新 section 退出
+                }
+
+                string[] parts = line.Split('=');
+                if (parts.Length == 2 && parts[0].Trim().StartsWith("d"))
+                {
+                    if (int.TryParse(parts[1].Trim(), out int pos))
+                    {
+                        positions.Add(pos);
+                    }
+                }
+            }
         }
-        return new List<int>();
+        return positions;
     }
 }
