@@ -29,6 +29,8 @@ namespace WinFormsApp1321
         private string result;
         private string errStr;
         private int mode ;
+        private volatile bool _testCompleted = false;
+
 
 
         private bool isAAReceived = false;
@@ -147,6 +149,8 @@ namespace WinFormsApp1321
                 {
                     var receivedData = await ReceiveMessageAsync(client);
                     if (receivedData == null || receivedData.Length == 0) break;
+                    // 更新 _testCompleted
+                    _testCompleted = CheckTestResult(receivedData);
 
                     var clientId = _clientIdentifiers.GetValueOrDefault(client, "Unknown");
                     var response = GenerateResponse(receivedData, clientId);
@@ -275,7 +279,7 @@ namespace WinFormsApp1321
         }
 
 
-        public bool CheckTestResult(byte[] data)
+        private bool CheckTestResult(byte[] data)
         {
             // 1. 查找 E5 标志位
             int indexE5 = Array.IndexOf(data, (byte)0xE5);
@@ -296,21 +300,18 @@ namespace WinFormsApp1321
                 bbData = extractedData;
                 Console.WriteLine("接收到BB检测");
             }
+            return isAAReceived && isBBReceived;
 
-            // 3. 如果 AA 和 BB 都收到，则进行下一步操作
-            if (isAAReceived && isBBReceived)
-            {
-                ProcessFinalTestData();
-                return true;
-            }
-            else
-            {
-                Console.WriteLine("等待AA和BB返回结果...");
-                return false;
-            }
         }
 
-        private bool ProcessFinalTestData()
+        //提供前端查询 _testCompleted 的方法
+        public bool IsTestCompleted()
+        {
+            return _testCompleted;
+        }
+
+
+        public bool ProcessFinalTestData()
         {
             // 检查 aaData 和 bbData 的第一位是否为 0xA0
             if ((aaData[0] == 0xA0) || (bbData[0] == 0xA0))
