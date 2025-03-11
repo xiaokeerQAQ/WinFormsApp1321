@@ -20,7 +20,7 @@ namespace WinFormsApp1321
         private readonly ScanGangBasic _scanGangBasic;
         private readonly PLCClient _plcClient;
         private readonly ReadTool _readTool;
-        private  Dictionary<string, Func<byte[], byte[]>> _responseHandlers;
+        private Dictionary<string, Func<byte[], byte[]>> _responseHandlers;
         private readonly Dictionary<string, Func<byte[], byte[]>> _responseHandlersTest;
         private readonly Dictionary<string, Func<byte[], byte[]>> _responseHandlersFormal;
         private readonly object _lock = new();
@@ -28,8 +28,10 @@ namespace WinFormsApp1321
         private int scanBBSuccessCount = 0;
         private string result;
         private string errStr;
-        private int mode ;
+        // 这里使用静态变量来存储模式
+        public static int Mode { get; set; }    //1代表测试模式，0代表正式模式
         private volatile bool _testCompleted = false;
+        private volatile bool _formalCompleted = false;
 
 
 
@@ -54,7 +56,7 @@ namespace WinFormsApp1321
                 { "FE-55-BB-02-00-80-E0", HandleHeartbeatBB },
                 { "FE-55-AA-02-00-80-E4", HandleScanAASuccess },
                 { "FE-55-BB-02-00-80-E4", HandleScanBBSuccess }
-                
+
             };
 
             _responseHandlersTest = new Dictionary<string, Func<byte[], byte[]>>
@@ -149,9 +151,16 @@ namespace WinFormsApp1321
                 {
                     var receivedData = await ReceiveMessageAsync(client);
                     if (receivedData == null || receivedData.Length == 0) break;
-                    // 更新 _testCompleted
-                    _testCompleted = CheckTestResult(receivedData);
 
+                    // 根据模式检查结果
+                    if (Mode == 1)
+                    {
+                        _testCompleted = CheckTestResult(receivedData);
+                    }
+                    else
+                    {
+                        _formalCompleted = CheckFormalResult(receivedData);
+                    }
                     var clientId = _clientIdentifiers.GetValueOrDefault(client, "Unknown");
                     var response = GenerateResponse(receivedData, clientId);
                     await SendMessageAsync(client, response);
@@ -172,7 +181,7 @@ namespace WinFormsApp1321
             if (receivedData.Length < 7) return new byte[] { 0xFF, 0xFF };
 
             var key = BitConverter.ToString(receivedData, 0, 7);
-            if(mode ==1)
+            if (Mode == 1)
             {
                 _responseHandlers = _responseHandlersTest;
             }
@@ -228,6 +237,8 @@ namespace WinFormsApp1321
                 DisconnectClient(client);
             }
         }
+
+
 
         private void DisconnectClient(Socket client)
         {
@@ -304,13 +315,41 @@ namespace WinFormsApp1321
 
         }
 
+        private bool CheckFormalResult(byte[] data)
+        {
+            // 1. 查找 E6 标志位
+            int indexE6 = Array.IndexOf(data, (byte)0xE6);
+            if (indexE6 == -1) return false;
+            byte identifier = data[2]; // 记录 AA 或 BB 标志
+            byte[] extractedData = data.Skip(indexE6 + 1).Take(data.Length - indexE6 - 2).ToArray();
+            if (identifier == 0xAA && !isAAReceived)
+            {
+                isAAReceived = true;
+                aaData = extractedData;
+                Console.WriteLine("接收到AA检测");
+            }
+            else if (identifier == 0xBB && !isBBReceived)
+            {
+                isBBReceived = true;
+                bbData = extractedData;
+                Console.WriteLine("接收到BB检测");
+            }
+            return isAAReceived && isBBReceived;
+        }
+
         //提供前端查询 _testCompleted 的方法
         public bool IsTestCompleted()
         {
             return _testCompleted;
         }
 
+        public bool IsFormalCompleted()
+        {
+            return _testCompleted;
+        }
 
+
+        //样棒结果校验
         public bool ProcessFinalTestData()
         {
             // 检查 aaData 和 bbData 的第一位是否为 0xA0
@@ -342,6 +381,9 @@ namespace WinFormsApp1321
 
             // 检查是否所有缺陷都被检测到
             bool allDefectsDetected = combinedDefects.All(defect => defect == 0xA0);  // 如果所有位都为 0xA0，说明都检测到了
+            // 操作完成后置空
+            aaData = Array.Empty<byte>();
+            bbData = Array.Empty<byte>();
 
             if (allDefectsDetected)
             {
@@ -353,6 +395,17 @@ namespace WinFormsApp1321
                 Console.WriteLine("某些缺陷未被检测出来。");
                 return false;
             }
+        }
+
+        //试件结果校验
+        public bool ProcessFormalTestData()
+        {
+            // 检查 aaData 和 bbData 的第一位是否为 0xA0
+            if ((aaData[0] == 0xA0) && (bbData[0] == 0xA0))
+            {
+                return true; // 都合格返回true
+            }
+            else { return false; }
         }
 
         //默认心跳响应
@@ -420,7 +473,7 @@ namespace WinFormsApp1321
             {
                 MessageBox.Show("无样棒信息，请输入样棒信息后重试！", "警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
-                return new byte[] { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0};
+                return new byte[] { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0 };
             }
             // 组装返回数据
             List<byte> response = new List<byte> { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xFA };
@@ -525,7 +578,8 @@ namespace WinFormsApp1321
             }
         }
         //AA确认试件信息成功送达仪器（回复E4）
-        private byte[] HandleScanAASuccess(byte[] input) {
+        private byte[] HandleScanAASuccess(byte[] input)
+        {
             // 更新计数器
             scanAASuccessCount++;
             /* // 检查是否 AA 和 BB 都已经收到
@@ -546,21 +600,21 @@ namespace WinFormsApp1321
             return response.Concat(new byte[] { checkSum }).ToArray();
         }
 
-/*        // 检查是否可以执行下一步操作
-        private void CheckForNextStep()
-        {
-            // 当 AA 和 BB 都收到消息时，执行下一步操作
-            if (scanAASuccessCount > 0 && scanBBSuccessCount > 0)
-            {
-                // 执行下一步操作
-                ExecuteNextStep();
+        /*        // 检查是否可以执行下一步操作
+                private void CheckForNextStep()
+                {
+                    // 当 AA 和 BB 都收到消息时，执行下一步操作
+                    if (scanAASuccessCount > 0 && scanBBSuccessCount > 0)
+                    {
+                        // 执行下一步操作
+                        ExecuteNextStep();
 
-                // 重置计数器，避免重复执行
-                scanAASuccessCount = 0;
-                scanBBSuccessCount = 0;
-            }
-        }*/
-        
+                        // 重置计数器，避免重复执行
+                        scanAASuccessCount = 0;
+                        scanBBSuccessCount = 0;
+                    }
+                }*/
+
 
     }
 }
