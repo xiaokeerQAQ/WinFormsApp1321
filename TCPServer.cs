@@ -484,11 +484,10 @@ namespace WinFormsApp1321
         //BB回复心跳时，携带样棒信息
         private byte[] HandleHeartbeatBBTest(byte[] input)
         {
-            SelectionForm selectionForm = new SelectionForm();
-            byte[] codeBytes = selectionForm.CodeBytes;
-            byte[] toleranceBytes = selectionForm.ToleranceBytes;
-            byte[] countBytes = selectionForm.CountBytes;
-            byte[] defectPositionsBytes = selectionForm.DefectPositionsBytes;
+            byte[] codeBytes = ConfigDataStore.CodeBytes;
+            byte[] toleranceBytes = ConfigDataStore.ToleranceBytes;
+            byte[] countBytes = ConfigDataStore.CountBytes;
+            byte[] defectPositionsBytes = ConfigDataStore.DefectPositionsBytes;
             // 计算条码长度，并转换为 4 字节数组（默认小端）
             int sampleLength = codeBytes.Length;
             byte[] lengthBytes = BitConverter.GetBytes(sampleLength);
