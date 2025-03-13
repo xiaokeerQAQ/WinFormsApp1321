@@ -289,6 +289,8 @@ namespace WinFormsApp1321
         }
 
         public bool confirmWriteSuccess;
+
+
         private async Task RunCalibrationLoop(string selectedStandardFile, CancellationToken token)
         {
             DateTime lastCycleEndTime = DateTime.Now;
@@ -298,11 +300,11 @@ namespace WinFormsApp1321
             {
                 NotifyCycleStart();
 
-                // **等待涡流检测软件返回第一次检测结果**
+                // **等待涡流检测软件返回检测结果**
                 bool isTestPassed = await CheckTestResultWithTimeout(TimeSpan.FromSeconds(20));
                 int registerValue = isTestPassed ? 2 : 1;
 
-                // **如果第一次检测不合格，直接停止校准**
+                // **如果检测不合格，直接停止校准**
                 if (!isTestPassed)
                 {
                     bool writeFail = await _plcClient.WriteDRegisterAsync(2142, registerValue);
@@ -314,7 +316,6 @@ namespace WinFormsApp1321
                     StopCalibration(true);
                     return;
                 }
-
                 // **合格后，向 PLC 写入 D2142 = 2**
                 bool writeSuccess = await _plcClient.WriteDRegisterAsync(2142, registerValue);
                 if (!writeSuccess)
@@ -343,22 +344,6 @@ namespace WinFormsApp1321
                     }
                 }
 
-                // **等待涡流检测软件返回第二次检测结果**
-                bool isSecondTestPassed = await CheckTestResultWithTimeout(TimeSpan.FromSeconds(60));
-                int secondRegisterValue = isSecondTestPassed ? 2 : 1;
-
-                if (!isSecondTestPassed)
-                {
-                    bool writeFail = await _plcClient.WriteDRegisterAsync(2142, secondRegisterValue);
-                    if (!writeFail)
-                    {
-                        MessageBox.Show($"写入 D2142 失败，校准终止！", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
-                    MessageBox.Show("本次校准不合格，停止校准。", "不合格", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    StopCalibration(true);
-                    return;
-                }
-
                 // **更新循环计数**
                 UpdateCycleCount();
 
@@ -367,6 +352,8 @@ namespace WinFormsApp1321
                     CompleteCalibration(lastCycleEndTime, iniPath);
                     return;
                 }
+                _tcpServer.ResetTestStatus();
+
             }
         }
 

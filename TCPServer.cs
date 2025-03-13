@@ -64,19 +64,19 @@ namespace WinFormsApp1321
 
             _responseHandlersFormal = new Dictionary<string, Func<byte[], byte[]>>
             {
-                { "FE-55-AA-02-00-80-E0", HandleHeartbeatAA },
-                { "FE-55-BB-02-00-80-E0", HandleHeartbeatBB },
-                { "FE-55-AA-02-00-80-E4", HandleScanAASuccess },
-                { "FE-55-BB-02-00-80-E4", HandleScanBBSuccess }
+                { "FE-55-AA-02-00-E0", HandleHeartbeatAA },
+                { "FE-55-BB-02-00-E0", HandleHeartbeatBB },
+                { "FE-55-AA-02-00-E4", HandleScanAASuccess },
+                { "FE-55-BB-02-00-E4", HandleScanBBSuccess }
 
             };
 
             _responseHandlersTest = new Dictionary<string, Func<byte[], byte[]>>
             {
-                { "FE-55-AA-02-00-80-E0",HandleHeartbeatAATest},
-                { "FE-55-BB-02-00-80-E0",HandleHeartbeatBBTest},
-                { "FE-55-AA-02-00-80-E3",HandleScanAASuccessTest},
-                { "FE-55-BB-02-00-80-E3",HandleScanBBSuccessTest}
+                { "FE-55-AA-02-00-E0",HandleHeartbeatAATest},
+                { "FE-55-BB-02-00-E0",HandleHeartbeatBBTest},
+                { "FE-55-AA-02-00-E3",HandleScanAASuccessTest},
+                { "FE-55-BB-02-00-E3",HandleScanBBSuccessTest}
             };
         }
 
@@ -175,9 +175,8 @@ namespace WinFormsApp1321
                     }
 
                     var clientId = _clientIdentifiers.GetValueOrDefault(client, "Unknown");
-
-                     var response = GenerateResponse(receivedData, clientId);
-                     await SendMessageAsync(client, response);
+                    var response = GenerateResponse(receivedData, clientId);
+                    await SendMessageAsync(client, response);
                     
                 }
             }
@@ -194,7 +193,7 @@ namespace WinFormsApp1321
 
         private byte[] GenerateResponse(byte[] receivedData, string clientId)
         {
-            if (receivedData.Length < 7) return new byte[] { 0xFF, 0xFF };
+            if (receivedData.Length < 6) return new byte[] { 0xFF, 0xFF };
 
             var key = BitConverter.ToString(receivedData, 0, 7);
 
@@ -295,7 +294,7 @@ namespace WinFormsApp1321
 
         private byte CalculateCheckSum(byte[] data)
         {
-            if (data.Length < 7) throw new ArgumentException("无效数据包");
+            if (data.Length < 6) throw new ArgumentException("无效数据包");
 
             byte checkSum = 0;
             for (int i = 5; i < data.Length - 1; i++)
@@ -378,6 +377,16 @@ namespace WinFormsApp1321
             return _formalCompleted;
         }
 
+        //重置每次循环的接受信息
+        public void ResetTestStatus()
+        {
+            isAAReceived = false;
+            isBBReceived = false;
+            aaData = Array.Empty<byte>();  // 赋值为空数组
+            bbData = Array.Empty<byte>();  // 赋值为空数组
+        }
+
+
         public async Task<bool> ProcessFinalTestData(int timeoutMilliseconds = 60000, int checkInterval = 100)
         {
             int elapsedTime = 0;
@@ -440,7 +449,7 @@ namespace WinFormsApp1321
         //默认心跳响应
         private byte[] GenerateDefaultResponseAA()
         {
-            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0 };
+            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0xF0 };
             byte checkSum = CalculateCheckSum(response);
 
             // 创建一个新数组，包含校验位
@@ -449,7 +458,7 @@ namespace WinFormsApp1321
 
         private byte[] GenerateDefaultResponseBB()
         {
-            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF0 };
+            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0xF0 };
             byte checkSum = CalculateCheckSum(response);
 
             // 创建一个新数组，包含校验位
@@ -478,8 +487,8 @@ namespace WinFormsApp1321
         private byte[] GenerateBarcodeResponse(string clientId, byte[] length, byte[] data)
         {
             var prefix = clientId == "AA"
-                ? new byte[] { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xFB }
-                : new byte[] { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xFB };
+                ? new byte[] { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0xFB }
+                : new byte[] { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0xFB };
 
             List<byte> response = new List<byte>(prefix);
             response.AddRange(length);
@@ -498,10 +507,10 @@ namespace WinFormsApp1321
             {
                 MessageBox.Show("无样棒信息，请输入样棒信息后重试！", "警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
-                return new byte[] { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0 };
+                return new byte[] { 0xFD, 0x55, 0xAA, 0x02, 0x000, 0xF0 };
             }
             // 组装返回数据
-            List<byte> response = new List<byte> { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xFA };
+            List<byte> response = new List<byte> { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0xFA };
             byte[] lengthBytes = BitConverter.GetBytes(sampleLength);
             response.AddRange(lengthBytes);
             response.AddRange(SelectionForm.CodeBytes);
@@ -520,10 +529,10 @@ namespace WinFormsApp1321
             {
                 MessageBox.Show("无样棒信息，请输入样棒信息后重试！", "警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
-                return new byte[] { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF0 };
+                return new byte[] { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0xF0 };
             }
             // 组装返回数据
-            List<byte> response = new List<byte> { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xFA };
+            List<byte> response = new List<byte> { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0xFA };
             byte[] lengthBytes = BitConverter.GetBytes(sampleLength);
             response.AddRange(lengthBytes);
             response.AddRange(SelectionForm.CodeBytes);
@@ -541,7 +550,7 @@ namespace WinFormsApp1321
             IncrementScanAASuccessCount();
             /* // 检查是否 AA 和 BB 都已经收到
             CheckForNextStep();*/
-            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0 };
+            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0xF0 };
             byte checkSum = CalculateCheckSum(response);
             return response.Concat(new byte[] { checkSum }).ToArray();
         }
@@ -552,7 +561,7 @@ namespace WinFormsApp1321
             IncrementScanBBSuccessCount();
             // 检查是否 AA 和 BB 都已经收到
             // CheckForNextStep();
-            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF0 };
+            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0xF0 };
             byte checkSum = CalculateCheckSum(response);
             return response.Concat(new byte[] { checkSum }).ToArray();
         }
@@ -572,7 +581,7 @@ namespace WinFormsApp1321
             else
             {
                 //返回默认心跳
-                byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0 };
+                byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0xF0 };
                 byte checkSum = CalculateCheckSum(response);
                 // 创建一个新数组，包含校验位
                 return response.Concat(new byte[] { checkSum }).ToArray();
@@ -592,7 +601,7 @@ namespace WinFormsApp1321
             }
             else
             {
-                byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF0 };
+                byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0xF0 };
                 //返回默认心跳
                 byte checkSum = CalculateCheckSum(response);
                 // 创建一个新数组，包含校验位
@@ -606,7 +615,7 @@ namespace WinFormsApp1321
             IncrementScanAASuccessCount();
             /* // 检查是否 AA 和 BB 都已经收到
             CheckForNextStep();*/
-            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0 };
+            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0xF0 };
             byte checkSum = CalculateCheckSum(response);
             return response.Concat(new byte[] { checkSum }).ToArray();
         }
@@ -617,7 +626,7 @@ namespace WinFormsApp1321
             IncrementScanBBSuccessCount(); 
             // 检查是否 AA 和 BB 都已经收到
             // CheckForNextStep();
-            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF0 };
+            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0xF0 };
             byte checkSum = CalculateCheckSum(response);
             return response.Concat(new byte[] { checkSum }).ToArray();
         }
