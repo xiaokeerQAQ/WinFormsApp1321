@@ -15,6 +15,7 @@ namespace WinFormsApp1321
         private readonly Socket _serverSocket;
         private readonly ConcurrentDictionary<Socket, string> _clients = new();
         private readonly ConcurrentDictionary<Socket, string> _clientIdentifiers = new();
+        private readonly SelectionForm _selectionForm;
         private const int BufferSize = 1024;
         private volatile bool _isRunning;
         private readonly ScanGangBasic _scanGangBasic;
@@ -24,15 +25,23 @@ namespace WinFormsApp1321
         private readonly Dictionary<string, Func<byte[], byte[]>> _responseHandlersTest;
         private readonly Dictionary<string, Func<byte[], byte[]>> _responseHandlersFormal;
         private readonly object _lock = new();
-        private int scanAASuccessCount = 0;
-        private int scanBBSuccessCount = 0;
         private string result;
         private string errStr;
+        private byte[] _codeBytes;
+        private byte[] _toleranceBytes;
+        private byte[] _countBytes;
+        private byte[] _defectPositionsBytes;
         // 这里使用静态变量来存储模式
-        public static int Mode { get; set; }    //1代表测试模式，0代表正式模式
+        public static bool Mode { get; set; }    //1代表测试模式，0代表正式模式
+        public static bool _canSendMessage { get; set; }
         private volatile bool _testCompleted = false;
         private volatile bool _formalCompleted = false;
-        private bool _canSendMessage = false;
+        // 共享计数器（静态变量）
+        private static int _scanAASuccessCount;
+        private static int _scanBBSuccessCount;
+        // 提供外部访问的只读属性
+        public static int ScanAASuccessCount => _scanAASuccessCount;
+        public static int ScanBBSuccessCount => _scanBBSuccessCount;
 
 
 
@@ -44,6 +53,8 @@ namespace WinFormsApp1321
         public event Action<string, string> OnMessageReceived;
         public event Action<string> OnClientDisconnected;
         public event Action<string> OnError;
+
+
 
         public TCPServer(PLCClient plcClient, ScanGangBasic scanGangBasic)
         {
@@ -154,7 +165,7 @@ namespace WinFormsApp1321
                     if (receivedData == null || receivedData.Length == 0) break;
 
                     // 根据模式检查结果
-                    if (Mode == 1)
+                    if (Mode == true)
                     {
                         _testCompleted = CheckTestResult(receivedData);
                     }
@@ -165,13 +176,9 @@ namespace WinFormsApp1321
 
                     var clientId = _clientIdentifiers.GetValueOrDefault(client, "Unknown");
 
-                    // 判断是否可以发送消息
-                    if (_canSendMessage)
-                    {
-                        var response = GenerateResponse(receivedData, clientId);
-                        await SendMessageAsync(client, response);
-                        _canSendMessage = false;  // 发送完毕后重置标志位
-                    }
+                     var response = GenerateResponse(receivedData, clientId);
+                     await SendMessageAsync(client, response);
+                    
                 }
             }
             catch (Exception ex)
@@ -190,7 +197,8 @@ namespace WinFormsApp1321
             if (receivedData.Length < 7) return new byte[] { 0xFF, 0xFF };
 
             var key = BitConverter.ToString(receivedData, 0, 7);
-            if (Mode == 1)
+
+            if (Mode == true)
             {
                 _responseHandlers = _responseHandlersTest;
             }
@@ -198,6 +206,7 @@ namespace WinFormsApp1321
             {
                 _responseHandlers = _responseHandlersFormal;
             }
+
             if (_responseHandlers.TryGetValue(key, out var handler))
             {
                 return handler(receivedData);
@@ -296,15 +305,25 @@ namespace WinFormsApp1321
             return checkSum;
         }
 
+        // 线程安全地增加计数
+        public static void IncrementScanAASuccessCount()
+        {
+            Interlocked.Increment(ref _scanAASuccessCount);
+        }
 
-        private bool CheckTestResult(byte[] data)
+        public static void IncrementScanBBSuccessCount()
+        {
+            Interlocked.Increment(ref _scanBBSuccessCount);
+        }
+
+        public bool CheckTestResult(byte[] data)
         {
             // 1. 查找 E5 标志位
             int indexE5 = Array.IndexOf(data, (byte)0xE5);
             if (indexE5 == -1) return false;
 
             byte identifier = data[2]; // 记录 AA 或 BB 标志
-            byte[] extractedData = data.Skip(indexE5 + 1).Take(data.Length - indexE5 - 2).ToArray();
+            byte[] extractedData = data.Skip(indexE5 + 1).Take(data.Length - indexE5 - 1).ToArray();
 
             if (identifier == 0xAA && !isAAReceived)
             {
@@ -329,7 +348,7 @@ namespace WinFormsApp1321
             if (indexE6 == -1) return false;
 
             byte identifier = data[2]; // 记录 AA 或 BB 标志
-            byte[] extractedData = data.Skip(indexE6 + 1).Take(data.Length - indexE6 - 2).ToArray();
+            byte[] extractedData = data.Skip(indexE6 + 1).Take(data.Length - indexE6 - 1).ToArray();
 
             if (identifier == 0xAA && !isAAReceived)
             {
@@ -359,37 +378,51 @@ namespace WinFormsApp1321
             return _formalCompleted;
         }
 
-        public bool ProcessFinalTestData()
+        public async Task<bool> ProcessFinalTestData(int timeoutMilliseconds = 6000000, int checkInterval = 100)
         {
-            // 检查 aaData 和 bbData 的第一位是否为 0xA0
-            if ((aaData[0] == 0xA0) || (bbData[0] == 0xA0))
+            int elapsedTime = 0;
+
+            Console.WriteLine("开始等待测试数据...");
+
+            // **等待数据就绪**
+            while ((aaData == null || bbData == null ) && elapsedTime < timeoutMilliseconds)
+            {
+                await Task.Delay(checkInterval);
+                elapsedTime += checkInterval;
+            }
+
+            if (elapsedTime >= timeoutMilliseconds)
+            {
+                Console.WriteLine("等待数据超时，未收到检测数据！");
+                return false;
+            }
+
+            // **数据到达后，检查是否第一位是 0xA0**
+            if (aaData[0] == 0xA1 || bbData[0] == 0xA1)
             {
                 Console.WriteLine("检测到数据的第一位为 0xA0, 返回 false.");
                 return false; // 返回 false
             }
 
-            // 如果没有返回，则继续处理
             Console.WriteLine("开始处理最终数据...");
 
-            // 提取缺陷数量
+            // **提取缺陷数量**
             int defectCountAA = BitConverter.ToInt32(aaData, 1);  // 读取 aaData 中缺陷数量 (4字节)
             int defectCountBB = BitConverter.ToInt32(bbData, 1);  // 读取 bbData 中缺陷数量 (4字节)
 
-            // 提取缺陷检出位置
-            byte[] defectsAA = aaData.Skip(5).Take(defectCountAA).ToArray();  // 从第 5 位开始，提取缺陷检出标志
-            byte[] defectsBB = bbData.Skip(5).Take(defectCountBB).ToArray();  // 从第 5 位开始，提取缺陷检出标志
+            // **提取缺陷检测数据**
+            byte[] defectsAA = aaData.Skip(5).Take(defectCountAA).ToArray();
+            byte[] defectsBB = bbData.Skip(5).Take(defectCountBB).ToArray();
 
-            // 对 AA 和 BB 的缺陷检出结果做或运算
-            byte[] combinedDefects = new byte[defectCountAA];
-            for (int i = 0; i < defectCountAA; i++)
+            // **进行缺陷合并**
+            byte[] combinedDefects = new byte[Math.Min(defectCountAA, defectCountBB)];
+            for (int i = 0; i < combinedDefects.Length; i++)
             {
-                // 如果 AA 或 BB 中对应位置是 0xA0（检测出缺陷），则认为该位置缺陷被检测到
                 combinedDefects[i] = (byte)((defectsAA[i] == 0xA0 || defectsBB[i] == 0xA0) ? 0xA0 : 0xA1);
             }
 
-
-            // 检查是否所有缺陷都被检测到
-            bool allDefectsDetected = combinedDefects.All(defect => defect == 0xA0);  // 如果所有位都为 0xA0，说明都检测到了
+            // **判断是否所有缺陷都被检测到**
+            bool allDefectsDetected = combinedDefects.All(defect => defect == 0xA0);
 
             if (allDefectsDetected)
             {
@@ -402,6 +435,7 @@ namespace WinFormsApp1321
                 return false;
             }
         }
+
 
         //默认心跳响应
         private byte[] GenerateDefaultResponseAA()
@@ -457,14 +491,9 @@ namespace WinFormsApp1321
         //AA回复心跳时，携带样棒信息
         private byte[] HandleHeartbeatAATest(byte[] input)
         {
-            SelectionForm selectionForm = new SelectionForm();
-            byte[] codeBytes = selectionForm.CodeBytes;
-            byte[] toleranceBytes = selectionForm.ToleranceBytes;
-            byte[] countBytes = selectionForm.CountBytes;
-            byte[] defectPositionsBytes = selectionForm.DefectPositionsBytes;
             // 计算条码长度，并转换为 4 字节数组（默认小端）
-            int sampleLength = codeBytes.Length;
-            byte[] lengthBytes = BitConverter.GetBytes(sampleLength);
+            int sampleLength = SelectionForm.CodeBytes.Length;
+
             if (sampleLength == 0)
             {
                 MessageBox.Show("无样棒信息，请输入样棒信息后重试！", "警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -473,24 +502,20 @@ namespace WinFormsApp1321
             }
             // 组装返回数据
             List<byte> response = new List<byte> { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xFA };
+            byte[] lengthBytes = BitConverter.GetBytes(sampleLength);
             response.AddRange(lengthBytes);
-            response.AddRange(codeBytes);
-            response.AddRange(toleranceBytes);
-            response.AddRange(countBytes);
-            response.AddRange(defectPositionsBytes);
+            response.AddRange(SelectionForm.CodeBytes);
+            response.AddRange(SelectionForm.ToleranceBytes);
+            response.AddRange(SelectionForm.CodeBytes);
+            response.AddRange(SelectionForm.DefectPositionsBytes);
             response.Add(CalculateCheckSum(response.ToArray()));
             return response.ToArray();
         }
         //BB回复心跳时，携带样棒信息
         private byte[] HandleHeartbeatBBTest(byte[] input)
         {
-            byte[] codeBytes = ConfigDataStore.CodeBytes;
-            byte[] toleranceBytes = ConfigDataStore.ToleranceBytes;
-            byte[] countBytes = ConfigDataStore.CountBytes;
-            byte[] defectPositionsBytes = ConfigDataStore.DefectPositionsBytes;
             // 计算条码长度，并转换为 4 字节数组（默认小端）
-            int sampleLength = codeBytes.Length;
-            byte[] lengthBytes = BitConverter.GetBytes(sampleLength);
+            int sampleLength = SelectionForm.CodeBytes.Length;
             if (sampleLength == 0)
             {
                 MessageBox.Show("无样棒信息，请输入样棒信息后重试！", "警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -499,11 +524,12 @@ namespace WinFormsApp1321
             }
             // 组装返回数据
             List<byte> response = new List<byte> { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xFA };
+            byte[] lengthBytes = BitConverter.GetBytes(sampleLength);
             response.AddRange(lengthBytes);
-            response.AddRange(codeBytes);
-            response.AddRange(toleranceBytes);
-            response.AddRange(countBytes);
-            response.AddRange(defectPositionsBytes);
+            response.AddRange(SelectionForm.CodeBytes);
+            response.AddRange(SelectionForm.ToleranceBytes);
+            response.AddRange(SelectionForm.CodeBytes);
+            response.AddRange(SelectionForm.DefectPositionsBytes);
             response.Add(CalculateCheckSum(response.ToArray()));
             return response.ToArray();
         }
@@ -512,10 +538,10 @@ namespace WinFormsApp1321
         private byte[] HandleScanAASuccessTest(byte[] input)
         {
             // 更新计数器
-            scanAASuccessCount++;
+            IncrementScanAASuccessCount();
             /* // 检查是否 AA 和 BB 都已经收到
             CheckForNextStep();*/
-            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF4 };
+            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0 };
             byte checkSum = CalculateCheckSum(response);
             return response.Concat(new byte[] { checkSum }).ToArray();
         }
@@ -523,10 +549,10 @@ namespace WinFormsApp1321
         private byte[] HandleScanBBSuccessTest(byte[] input)
         {
             // 更新计数器
-            scanBBSuccessCount++;
+            IncrementScanBBSuccessCount();
             // 检查是否 AA 和 BB 都已经收到
             // CheckForNextStep();
-            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF4 };
+            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF0 };
             byte checkSum = CalculateCheckSum(response);
             return response.Concat(new byte[] { checkSum }).ToArray();
         }
@@ -577,10 +603,10 @@ namespace WinFormsApp1321
         private byte[] HandleScanAASuccess(byte[] input)
         {
             // 更新计数器
-            scanAASuccessCount++;
+            IncrementScanAASuccessCount();
             /* // 检查是否 AA 和 BB 都已经收到
             CheckForNextStep();*/
-            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF4 };
+            byte[] response = { 0xFD, 0x55, 0xAA, 0x02, 0x00, 0x80, 0xF0 };
             byte checkSum = CalculateCheckSum(response);
             return response.Concat(new byte[] { checkSum }).ToArray();
         }
@@ -588,10 +614,10 @@ namespace WinFormsApp1321
         private byte[] HandleScanBBSuccess(byte[] input)
         {
             // 更新计数器
-            scanBBSuccessCount++;
+            IncrementScanBBSuccessCount(); 
             // 检查是否 AA 和 BB 都已经收到
             // CheckForNextStep();
-            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF4 };
+            byte[] response = { 0xFD, 0x55, 0xBB, 0x02, 0x00, 0x80, 0xF0 };
             byte checkSum = CalculateCheckSum(response);
             return response.Concat(new byte[] { checkSum }).ToArray();
         }

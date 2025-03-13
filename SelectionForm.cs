@@ -18,18 +18,10 @@ namespace WinFormsApp1321
         private string barcode = ""; // 记录条码信息
         private readonly ReadTool _readTool;
 
-        // 定义变量存储读取的值
-        private byte[] codeBytes;  // 存储 code
-        private byte[] toleranceBytes;  // 存储公差
-        private byte[] countBytes;  // 存储数量
-        private byte[] defectPositionsBytes;  // 存储所有缺陷位置
-
-
-        // 公开属性供其他类访问
-        public byte[] CodeBytes => codeBytes;  // 只读属性
-        public byte[] ToleranceBytes => toleranceBytes;  // 只读属性
-        public byte[] CountBytes => countBytes;  // 只读属性
-        public byte[] DefectPositionsBytes => defectPositionsBytes;  // 只读属性
+        public static byte[] CodeBytes { get; private set; }
+        public static byte[] ToleranceBytes { get; private set; }
+        public static byte[] CountBytes { get; private set; }
+        public static byte[] DefectPositionsBytes { get; private set; }
 
         public SelectionForm()
         {
@@ -181,14 +173,14 @@ namespace WinFormsApp1321
                 ReadTool readTool = new ReadTool(StandardFilePath);
 
                 // 读取 code 并显示（需要转换为字符串）
-                codeBytes = readTool.ReadStringAsBytes("Code", "code");
-                textBox4.Text = Encoding.ASCII.GetString(codeBytes);
+                CodeBytes = readTool.ReadStringAsBytes("Code", "code") ?? new byte[0];
+                textBox4.Text = Encoding.ASCII.GetString(CodeBytes);
                 textBox4.ReadOnly = true; // 禁止编辑
 
                 // 读取公差、数量、缺陷位置
-                toleranceBytes = readTool.ReadFloatAsBytes("Tolerance", "tolerance");
-                countBytes = readTool.ReadIntAsBytes("Count", "count");
-                defectPositionsBytes = readTool.ReadAllDefectPositionsAsBytes("DefectPositions");
+                ToleranceBytes = readTool.ReadFloatAsBytes("Tolerance", "tolerance") ?? new byte[0];
+                CountBytes = readTool.ReadIntAsBytes("Count", "count") ?? new byte[0];
+                DefectPositionsBytes = readTool.ReadAllDefectPositionsAsBytes("DefectPositions") ?? new byte[0];
             }
         }
 

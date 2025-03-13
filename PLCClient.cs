@@ -167,7 +167,6 @@ namespace WinFormsApp1321
             (byte)(address & 0xFF),          // 低字节
             (byte)((address >> 8) & 0xFF),   // 中间字节
             (byte)((address >> 16) & 0xFF),  // 高字节
-            (byte)(address & 0xFF), (byte)((address >> 8) & 0xFF),  // 地址
             0xA8,  // D寄存器z标识符 (0xA8)
             0x01, 0x00,  //软元件点数
             // 将 value 按照 2 字节插入
