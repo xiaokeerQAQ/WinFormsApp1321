@@ -378,7 +378,7 @@ namespace WinFormsApp1321
             return _formalCompleted;
         }
 
-        public async Task<bool> ProcessFinalTestData(int timeoutMilliseconds = 6000000, int checkInterval = 100)
+        public async Task<bool> ProcessFinalTestData(int timeoutMilliseconds = 60000, int checkInterval = 100)
         {
             int elapsedTime = 0;
 

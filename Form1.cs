@@ -298,11 +298,11 @@ namespace WinFormsApp1321
             {
                 NotifyCycleStart();
 
-                // 使用超时机制来判断测试结果是否合格
+                // **等待涡流检测软件返回第一次检测结果**
                 bool isTestPassed = await CheckTestResultWithTimeout(TimeSpan.FromSeconds(20));
                 int registerValue = isTestPassed ? 2 : 1;
 
-                // 如果不合格，直接停止校准
+                // **如果第一次检测不合格，直接停止校准**
                 if (!isTestPassed)
                 {
                     bool writeFail = await _plcClient.WriteDRegisterAsync(2142, registerValue);
@@ -310,32 +310,56 @@ namespace WinFormsApp1321
                     {
                         MessageBox.Show($"写入 D2142 失败，校准终止！", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
-                    MessageBox.Show("校准不合格，停止校准。", "不合格", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show("本次校准不合格，停止校准。", "不合格", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     StopCalibration(true);
                     return;
                 }
 
-                // 如果不是第一次循环，合格后向 D2142 写入 2 并检查 D2132
-                if (currentCycle > 0)
+                // **合格后，向 PLC 写入 D2142 = 2**
+                bool writeSuccess = await _plcClient.WriteDRegisterAsync(2142, registerValue);
+                if (!writeSuccess)
                 {
-                    bool writeSuccess = await _plcClient.WriteDRegisterAsync(2142, registerValue);
-                    if (!writeSuccess)
+                    MessageBox.Show($"写入 D2142 失败，校准终止！", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    StopCalibration(true);
+                    return;
+                }
+
+                // **等待 PLC 反馈，检查 D2132 是否为 1**
+                while (true)
+                {
+                    int[] response = await _plcClient.ReadDRegisterAsync(2132, 1);
+                    if (response != null && response.Length > 0 && response[0] == 1)
                     {
-                        MessageBox.Show($"写入 D2142 失败，校准终止！", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        StopCalibration(true);
-                        return;
+                        break;  // **D2132 == 1，继续**
                     }
 
-                    // 检查 D2132 是否为 1 来决定是否进行下一次循环
-                    int[] response = await _plcClient.ReadDRegisterAsync(2132, 1);
-                    if (response == null || response.Length == 0 || response[0] != 1)
+                    DialogResult result = MessageBox.Show("PLC 未准备好，请检查设备状态，点击确认继续等待。",
+                        "等待 PLC", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
+                    if (result == DialogResult.Cancel)
                     {
-                        MessageBox.Show("D2132 不为 1，停止校准。", "停止", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        MessageBox.Show("操作已取消，校准终止！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         StopCalibration(true);
                         return;
                     }
                 }
 
+                // **等待涡流检测软件返回第二次检测结果**
+                bool isSecondTestPassed = await CheckTestResultWithTimeout(TimeSpan.FromSeconds(60));
+                int secondRegisterValue = isSecondTestPassed ? 2 : 1;
+
+                if (!isSecondTestPassed)
+                {
+                    bool writeFail = await _plcClient.WriteDRegisterAsync(2142, secondRegisterValue);
+                    if (!writeFail)
+                    {
+                        MessageBox.Show($"写入 D2142 失败，校准终止！", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                    MessageBox.Show("本次校准不合格，停止校准。", "不合格", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    StopCalibration(true);
+                    return;
+                }
+
+                // **更新循环计数**
                 UpdateCycleCount();
 
                 if (currentCycle >= totalCycles)
@@ -345,6 +369,7 @@ namespace WinFormsApp1321
                 }
             }
         }
+
 
         private async Task<bool> CheckTestResultWithTimeout(TimeSpan timeout)
         {
